@@ -23,10 +23,11 @@ const createDesign = async (req, res) => {
 
     const newDesign = new Design({
       ...data,
+      type: data.type || 'design',   // preserve type from client, default to "design"
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       userEmail,
       imageUrl,
-      images: imageUrl ? [imageUrl] : [],
+      images: imageUrl ? [imageUrl] : (data.images || []),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -97,7 +98,30 @@ const getDesign = async (req, res) => {
 const getDesignByEmail = async (req, res) => {
   try {
     const email = req.effectiveEmail;
-    const designs = await Design.find({ userEmail: email }).sort({ createdAt: -1 });
+    const { type } = req.query;
+
+    console.log('🎨 getDesignByEmail called');
+    console.log('  email:', email);
+    console.log('  ?type query param:', type);
+
+    let filter;
+    if (type === 'order') {
+      filter = { userEmail: email, $or: [{ type: 'order' }, { type: { $exists: false } }, { type: null }] };
+    } else if (type === 'design') {
+      filter = { userEmail: email, type: { $ne: 'order' } };
+    } else {
+      filter = { userEmail: email };
+    }
+
+    console.log('  MongoDB filter:', JSON.stringify(filter));
+
+    const designs = await Design.find(filter).sort({ createdAt: -1 });
+
+    console.log(`  Total records returned: ${designs.length}`);
+    designs.forEach((d, i) => {
+      console.log(`  [${i}] id: ${d.id} | type: "${d.type}" | name: "${d.name}"`);
+    });
+
     res.json({ success: true, data: designs });
   } catch (error) {
     console.error('❌ Error:', error);

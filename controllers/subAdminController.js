@@ -1,7 +1,17 @@
+/**
+ * subAdminController.js  — no Firebase
+ *
+ * createSubAdmin now creates an AuthUser in MongoDB (bcrypt) instead of
+ * calling admin.auth().createUser() in Firebase.
+ */
+
+const crypto = require('crypto');
 const SubAdmin = require('../models/SubAdmin');
-const { admin } = require('../server');
+const AuthUser = require('../models/AuthUser');
+const { hashPassword } = require('../utils/passwordUtils');
 
 const createSubAdmin = async (req, res) => {
+  console.log('[subAdmin] ── CREATE SUBADMIN ──────────────────────────');
   try {
     const { name, email, phone, role, permissions } = req.body;
 
@@ -10,44 +20,67 @@ const createSubAdmin = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase();
-    const ownerEmail = req.effectiveEmail;
+    const ownerEmail      = req.effectiveEmail;
 
-    const existing = await SubAdmin.findOne({ email: normalizedEmail });
-    if (existing) {
+    // Check both SubAdmin and AuthUser for existing email
+    console.log(`[subAdmin] Checking for existing records: ${normalizedEmail}`);
+    const [existingSubAdmin, existingAuth] = await Promise.all([
+      SubAdmin.findOne({ email: normalizedEmail }),
+      AuthUser.findOne({ email: normalizedEmail }),
+    ]);
+
+    if (existingSubAdmin) {
+      console.warn(`[subAdmin] SubAdmin already exists: ${normalizedEmail}`);
       return res.status(400).json({ success: false, error: 'SubAdmin already exists' });
     }
+    if (existingAuth) {
+      console.warn(`[subAdmin] Email already in use (auth_users): ${normalizedEmail}`);
+      return res.status(400).json({ success: false, error: 'Email already in use' });
+    }
 
-    // Generate password: first name + "123456"
+    // Generate password: firstName + "123456"
     const firstName = name.split(' ')[0].toLowerCase();
-    const password = `${firstName}123456`;
+    const password  = `${firstName}123456`;
 
-    // Create Firebase Auth user via Admin SDK (no auto-login side effects)
-    const userRecord = await admin.auth().createUser({
-      email: normalizedEmail,
-      password,
-      displayName: name.trim(),
-    });
+    // Create AuthUser in MongoDB with bcrypt hash (no Firebase)
+    console.log(`[subAdmin] Creating AuthUser for: ${normalizedEmail}`);
+    const bcryptHash = await hashPassword(password);
+    const uid        = crypto.randomUUID();
+
+    await new AuthUser({
+      email:         normalizedEmail,
+      firebaseUid:   null,
+      provider:      'email',
+      bcryptHash,
+      displayName:   name.trim(),
+      emailVerified: false,
+      disabled:      false,
+    }).save();
+    console.log('[subAdmin] AuthUser created ✅');
 
     const subAdmin = new SubAdmin({
-      uid: userRecord.uid,
-      name: name.trim(),
-      email: normalizedEmail,
-      phone: phone || '',
-      role: role || 'SubAdmin',
-      invitedBy: ownerEmail,
+      uid,
+      name:        name.trim(),
+      email:       normalizedEmail,
+      phone:       phone || '',
+      role:        role || 'SubAdmin',
+      invitedBy:   ownerEmail,
       permissions: permissions || {},
     });
 
     await subAdmin.save();
+    console.log('[subAdmin] SubAdmin saved ✅');
+
     res.status(201).json({
       success: true,
       message: 'SubAdmin created successfully',
-      data: subAdmin,
-      password, // return so frontend can display it
+      data:     subAdmin,
+      password, // returned so frontend can display it once
     });
   } catch (error) {
-    console.error('❌ Error:', error);
-    if (error.code === 'auth/email-already-exists') {
+    console.error('[subAdmin] createSubAdmin error:', error.message);
+    // Mongo duplicate key
+    if (error.code === 11000) {
       return res.status(400).json({ success: false, error: 'Email already in use' });
     }
     res.status(500).json({ success: false, error: error.message });
@@ -62,7 +95,7 @@ const deleteSubAdmin = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase();
-    const ownerEmail = req.effectiveEmail;
+    const ownerEmail      = req.effectiveEmail;
 
     const deleted = await SubAdmin.findOneAndDelete({ email: normalizedEmail, invitedBy: ownerEmail });
     if (!deleted) {
@@ -84,7 +117,7 @@ const editSubAdmin = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase();
-    const ownerEmail = req.effectiveEmail;
+    const ownerEmail      = req.effectiveEmail;
 
     const updated = await SubAdmin.findOneAndUpdate(
       { email: normalizedEmail, invitedBy: ownerEmail },
@@ -106,7 +139,7 @@ const editSubAdmin = async (req, res) => {
 const getSubAdmin = async (req, res) => {
   try {
     const ownerEmail = req.effectiveEmail;
-    const subAdmins = await SubAdmin.find({ invitedBy: ownerEmail });
+    const subAdmins  = await SubAdmin.find({ invitedBy: ownerEmail });
     res.json({ success: true, data: subAdmins });
   } catch (error) {
     console.error('❌ Error:', error);
@@ -114,9 +147,4 @@ const getSubAdmin = async (req, res) => {
   }
 };
 
-module.exports = {
-  createSubAdmin,
-  deleteSubAdmin,
-  editSubAdmin,
-  getSubAdmin,
-};
+module.exports = { createSubAdmin, deleteSubAdmin, editSubAdmin, getSubAdmin };
