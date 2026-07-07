@@ -1,15 +1,4 @@
-/**
- * firebaseScrypt.js
- *
- * Firebase scrypt password verification using project-specific parameters
- * fetched from: identitytoolkit.googleapis.com/v2/projects/fashiontallycloud/config
- *
- * Params:
- *   signerKey    x4WIMM29AgREoc80bEtA8oDf0yQXWl8HhxNJA9quxu7mIBmtZtadgWu9pfpD/Pil10DEwPUYdk1T/xW/F9HVew==
- *   saltSeparator Bw==
- *   rounds        8
- *   memCost       14
- */
+
 
 const { FirebaseScrypt } = require('firebase-scrypt');
 
@@ -31,14 +20,7 @@ console.log('[firebaseScrypt] Loaded with params:', {
   signerKey:     SCRYPT_PARAMS.signerKey.substring(0, 20) + '...',
 });
 
-/**
- * Verify a plain-text password against a Firebase scrypt hash.
- *
- * @param {string} password      plain-text from login request
- * @param {string} passwordHash  base64 hash from auth_users
- * @param {string} passwordSalt  base64 salt from auth_users
- * @returns {Promise<boolean>}
- */
+
 async function verifyFirebasePassword(password, passwordHash, passwordSalt) {
   try {
     console.log('[firebaseScrypt] verifyFirebasePassword →');

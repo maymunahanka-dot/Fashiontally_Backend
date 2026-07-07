@@ -45,11 +45,35 @@ const adminLogin = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Code is required' });
     }
 
-    const credential = await AdminCredential.findOne({ code: code.trim() });
+    const enteredCode = code.trim();
 
+    // ── DEBUG: count total docs in collection ──────────────────────────
+    const totalDocs = await AdminCredential.countDocuments();
     console.log('🔐 Admin login attempt:');
-    console.log('   Entered code :', code.trim());
-    console.log('   DB code      :', credential ? credential.code : '(no match found)');
+    console.log('   Entered code          :', enteredCode);
+    console.log('   Entered code length   :', enteredCode.length);
+    console.log('   Entered code charCodes:', [...enteredCode].map(c => c.charCodeAt(0)).join(', '));
+    console.log('   DB: collection        :', AdminCredential.collection.name);
+    console.log('   DB: total docs        :', totalDocs);
+
+    if (totalDocs === 0) {
+      console.warn('⚠️  fashiontally_admin_credentials collection is EMPTY — no codes have been saved to MongoDB.');
+      console.warn('   The add-admin-code.js script saves codes to FIRESTORE, not MongoDB. That is why login fails.');
+      console.warn('   Fix: use POST /api/admin/setup to create a code in MongoDB, or insert one directly.');
+    }
+
+    // ── DEBUG: list all stored codes ───────────────────────────────────
+    const allCreds = await AdminCredential.find({}, { code: 1, label: 1, isActive: 1 }).lean();
+    if (allCreds.length > 0) {
+      console.log('   DB: stored codes:');
+      allCreds.forEach((c, i) => {
+        console.log(`     [${i}] code="${c.code}" (len=${c.code.length}) label="${c.label}" isActive=${c.isActive}`);
+        console.log(`         charCodes: ${[...c.code].map(ch => ch.charCodeAt(0)).join(', ')}`);
+      });
+    }
+
+    const credential = await AdminCredential.findOne({ code: enteredCode });
+    console.log('   Match found           :', credential ? `YES — label="${credential.label}"` : 'NO');
 
     if (!credential) {
       return res.status(401).json({ success: false, error: 'Invalid code. Please check and try again.' });
@@ -66,6 +90,7 @@ const adminLogin = async (req, res) => {
       { expiresIn: '12h' }
     );
 
+    console.log('✅ Admin login SUCCESS for label:', credential.label);
     res.json({ success: true, token });
   } catch (error) {
     console.error('❌ Admin login error:', error);

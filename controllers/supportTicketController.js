@@ -1,5 +1,23 @@
 const SupportTicket = require('../models/SupportTicket');
 const cloudinary    = require('../config/cloudinary');
+const User          = require('../models/User');
+const { sendNotification } = require('../services/notification.service');
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Find the user by email and send them a push notification.
+ * Fails silently — never blocks the HTTP response.
+ */
+async function notifyTicketUser(userEmail, title, body) {
+  try {
+    const user = await User.findOne({ email: userEmail }).select('_id fcmTokens').lean();
+    if (!user) return;
+    await sendNotification(String(user._id), title, body, { type: 'support_ticket' });
+  } catch (err) {
+    console.error('[ticket-notif] Failed to send notification:', err.message);
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -168,6 +186,16 @@ const adminReply = async (req, res) => {
     ticket.updatedAt = new Date().toISOString();
     await ticket.save();
 
+    // ── Push notification to the user ─────────────────────────
+    const preview = text.trim().length > 80
+      ? text.trim().slice(0, 77) + '…'
+      : text.trim();
+    notifyTicketUser(
+      ticket.userEmail,
+      '💬 Support Reply',
+      `Your ticket (${ticket.id}) has a new reply: "${preview}"`
+    );
+
     res.json({ success: true, message: 'Reply sent', data: ticket });
   } catch (error) {
     console.error('❌ Error sending admin reply:', error);
@@ -193,6 +221,23 @@ const adminUpdateStatus = async (req, res) => {
       { new: true }
     );
     if (!ticket) return res.status(404).json({ success: false, error: 'Ticket not found' });
+
+    // ── Push notification to the user ─────────────────────────
+    const statusLabels = {
+      open:        '🔓 Reopened',
+      in_progress: '🔄 In Progress',
+      resolved:    '✅ Resolved',
+    };
+    const statusMessages = {
+      open:        `Your ticket (${ticket.id}) has been reopened.`,
+      in_progress: `Your ticket (${ticket.id}) is now being worked on.`,
+      resolved:    `Your ticket (${ticket.id}) has been marked as resolved. We hope your issue is fixed!`,
+    };
+    notifyTicketUser(
+      ticket.userEmail,
+      `🎫 Ticket ${statusLabels[status] || status}`,
+      statusMessages[status] || `Your ticket (${ticket.id}) status changed to ${status}.`
+    );
 
     res.json({ success: true, message: 'Status updated', data: ticket });
   } catch (error) {

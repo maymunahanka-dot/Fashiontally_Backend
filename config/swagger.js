@@ -1,6 +1,7 @@
 const paths2 = require('./swaggerPaths2');
 const paths3 = require('./swaggerPaths3');
 const paths4 = require('./swaggerPaths4');
+const paths5 = require('./swaggerPaths5');
 
 const paths = {
   '/api/auth/signup': {
@@ -928,7 +929,7 @@ const swaggerSpec = {
     },
   },
   security: [{ bearerAuth: [] }],
-  paths: { ...paths, ...paths2, ...paths3, ...paths4 },
+  paths: { ...paths, ...paths2, ...paths3, ...paths4, ...paths5 },
 };
 
 module.exports = swaggerSpec;

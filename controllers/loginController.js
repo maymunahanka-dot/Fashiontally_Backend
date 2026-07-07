@@ -15,6 +15,7 @@ const User = require('../models/User');
 const AuthUser = require('../models/AuthUser');
 const SubAdmin = require('../models/SubAdmin');
 const { verifyPassword, migrateTobcrypt } = require('../utils/passwordUtils');
+const { sendNotification } = require('../services/notification.service');
 
 const loginUser = async (req, res) => {
   console.log('[login] ── LOGIN ATTEMPT ──────────────────────────────');
@@ -79,6 +80,13 @@ const loginUser = async (req, res) => {
         { expiresIn: '7d' }
       );
       console.log('[login] Regular user — success ✅');
+      // Fire-and-forget — does not delay the login response
+      sendNotification(
+        user._id,
+        'Login Successful',
+        'You just logged into your account.',
+        { type: 'login' }
+      ).catch(() => {});
       return res.json({ success: true, token, user });
     }
 

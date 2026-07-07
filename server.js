@@ -23,6 +23,13 @@ connectMongoDB();
 // No Firebase Admin — auth is fully MongoDB-based
 console.log('✅ Auth: MongoDB-based (no Firebase)');
 
+// ── Firebase Admin (FCM push notifications) ───────────────────
+require('./firebase/firebase-admin');
+
+// ── Daily notification scheduler ─────────────────────────────
+const { startDailyNotificationScheduler } = require('./services/dailyNotifications.service');
+startDailyNotificationScheduler();
+
 // ── Routes ────────────────────────────────────────────────────
 const signupRoutes                  = require('./routes/signup');
 const loginRoutes                   = require('./routes/login');
@@ -64,6 +71,8 @@ const measurementRoutes             = require('./routes/measurement');
 const supportTicketRoutes           = require('./routes/supportTicket');
 const adminSupportTicketRoutes      = require('./routes/adminSupportTicket');
 const customerServiceAuthRoutes     = require('./routes/customerServiceAuth');
+const fcmTokenRoutes                 = require('./routes/fcmToken');
+const adminNotificationRoutes        = require('./routes/adminNotification');
 
 app.use('/api/auth', signupRoutes);
 app.use('/api/auth', loginRoutes);
@@ -105,6 +114,8 @@ app.use('/api/admin/inbox', adminInboxRoutes);
 app.use('/api/support-ticket', supportTicketRoutes);
 app.use('/api/admin/support-tickets', adminSupportTicketRoutes);
 app.use('/api/cs-auth', customerServiceAuthRoutes);
+app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
+app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
 
 // ── Protected test route ──────────────────────────────────────
 const { verifyToken } = require('./middleware/auth');
