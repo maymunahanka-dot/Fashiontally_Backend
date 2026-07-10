@@ -30,6 +30,10 @@ require('./firebase/firebase-admin');
 const { startDailyNotificationScheduler } = require('./services/dailyNotifications.service');
 startDailyNotificationScheduler();
 
+// ── Firebase → MongoDB sync scheduler (every hour) ───────────
+const { startSyncScheduler } = require('./services/syncScheduler.service');
+startSyncScheduler();
+
 // ── Routes ────────────────────────────────────────────────────
 const signupRoutes                  = require('./routes/signup');
 const loginRoutes                   = require('./routes/login');
@@ -73,6 +77,7 @@ const adminSupportTicketRoutes      = require('./routes/adminSupportTicket');
 const customerServiceAuthRoutes     = require('./routes/customerServiceAuth');
 const fcmTokenRoutes                 = require('./routes/fcmToken');
 const adminNotificationRoutes        = require('./routes/adminNotification');
+const emailBlastRoutes               = require('./routes/emailBlast');
 
 app.use('/api/auth', signupRoutes);
 app.use('/api/auth', loginRoutes);
@@ -116,6 +121,7 @@ app.use('/api/admin/support-tickets', adminSupportTicketRoutes);
 app.use('/api/cs-auth', customerServiceAuthRoutes);
 app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
 app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
+app.use('/api/email-blast', emailBlastRoutes);               // GET /users  POST /send
 
 // ── Protected test route ──────────────────────────────────────
 const { verifyToken } = require('./middleware/auth');

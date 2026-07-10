@@ -2,13 +2,7 @@ const User                   = require('../models/User');
 const BroadcastNotification  = require('../models/BroadcastNotification');
 const admin                  = require('../firebase/firebase-admin');
 
-/**
- * POST /api/admin/notifications/send
- * Body: { title, body }
- *
- * Sends a push notification to every user who has at least one enabled FCM token.
- * Records the broadcast (targeted, delivered, failed) in MongoDB.
- */
+
 const sendBroadcast = async (req, res) => {
   try {
     const { title, body } = req.body;
