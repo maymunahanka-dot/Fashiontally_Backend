@@ -2,7 +2,10 @@
  * emailBlastController.js
  *
  * GET  /api/email-blast/users  — returns all fashiontally_users from Firestore
- * POST /api/email-blast/send   — sends an email to all or selected users via Mailtrap
+ * POST /api/email-blast/send   — sends email to all or selected users via Mailtrap
+ *
+ * Fix: parallel sending (Promise.allSettled) to avoid 504 timeout,
+ *      deduplication of users by email to fix duplicate React keys.
  */
 
 const admin       = require('../firebase/firebase-admin');
@@ -13,24 +16,24 @@ const db = admin.firestore();
 // ── GET /api/email-blast/users ────────────────────────────────────────────────
 const getFirebaseUsers = async (req, res) => {
   try {
-    const snap  = await db.collection('fashiontally_users').get();
-    const users = [];
+    const snap = await db.collection('fashiontally_users').get();
 
+    // Deduplicate by email (Firestore may have duplicates)
+    const seen  = new Map();
     snap.forEach(doc => {
-      const d = doc.data();
-      if (d.email) {
-        users.push({
-          email: (d.email || '').toLowerCase().trim(),
-          name:  d.name || d.displayName || d.fullName || '',
+      const d     = doc.data();
+      const email = (d.email || '').toLowerCase().trim();
+      if (email && !seen.has(email)) {
+        seen.set(email, {
+          email,
+          name: d.name || d.displayName || d.fullName || '',
         });
       }
     });
 
-    users.sort((a, b) => {
-      const na = (a.name || a.email).toLowerCase();
-      const nb = (b.name || b.email).toLowerCase();
-      return na.localeCompare(nb);
-    });
+    const users = [...seen.values()].sort((a, b) =>
+      (a.name || a.email).toLowerCase().localeCompare((b.name || b.email).toLowerCase())
+    );
 
     res.json({ success: true, users });
   } catch (err) {
@@ -70,6 +73,40 @@ function buildHtml(subject, message) {
   `;
 }
 
+// Send emails in parallel batches to stay under SMTP connection limits
+const BATCH_SIZE = 20;
+
+async function sendInBatches(targets, html, subject) {
+  let sent = 0, failed = 0;
+  const errors = [];
+
+  for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+    const batch   = targets.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(email =>
+        transporter.sendMail({
+          from:    '"FashionTally" <no-reply@fashiontally.com>',
+          to:      email,
+          subject: subject,
+          html,
+        })
+      )
+    );
+
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled') {
+        sent++;
+      } else {
+        failed++;
+        errors.push({ email: batch[idx], error: r.reason?.message || 'Unknown' });
+        console.error(`[emailBlast] failed → ${batch[idx]}:`, r.reason?.message);
+      }
+    });
+  }
+
+  return { sent, failed, errors };
+}
+
 // ── POST /api/email-blast/send ────────────────────────────────────────────────
 const sendEmailBlast = async (req, res) => {
   const { subject, message, recipients } = req.body || {};
@@ -82,21 +119,22 @@ const sendEmailBlast = async (req, res) => {
     return res.status(400).json({ success: false, error: 'recipients is required' });
 
   try {
-    // Pull all users from Firestore
-    const snap     = await db.collection('fashiontally_users').get();
-    let allUsers   = [];
+    // Pull + deduplicate users from Firestore
+    const snap   = await db.collection('fashiontally_users').get();
+    const seen   = new Set();
+    const allEmails = [];
     snap.forEach(doc => {
-      const d = doc.data();
-      if (d.email) allUsers.push((d.email || '').toLowerCase().trim());
+      const email = (doc.data().email || '').toLowerCase().trim();
+      if (email && !seen.has(email)) { seen.add(email); allEmails.push(email); }
     });
 
-    // Decide targets
+    // Filter to requested targets
     let targets = [];
     if (recipients === 'all') {
-      targets = allUsers;
+      targets = allEmails;
     } else if (Array.isArray(recipients)) {
-      const set = new Set(recipients.map(e => e.toLowerCase().trim()));
-      targets   = allUsers.filter(e => set.has(e));
+      const want = new Set(recipients.map(e => e.toLowerCase().trim()));
+      targets    = allEmails.filter(e => want.has(e));
     } else {
       return res.status(400).json({ success: false, error: 'recipients must be "all" or an array of emails' });
     }
@@ -104,26 +142,8 @@ const sendEmailBlast = async (req, res) => {
     if (targets.length === 0)
       return res.status(400).json({ success: false, error: 'No matching users found' });
 
-    const html   = buildHtml(subject.trim(), message.trim());
-    let sent     = 0;
-    let failed   = 0;
-    const errors = [];
-
-    for (const email of targets) {
-      try {
-        await transporter.sendMail({
-          from:    '"FashionTally" <no-reply@fashiontally.com>',
-          to:      email,
-          subject: subject.trim(),
-          html,
-        });
-        sent++;
-      } catch (err) {
-        failed++;
-        errors.push({ email, error: err.message });
-        console.error(`[emailBlast] failed → ${email}:`, err.message);
-      }
-    }
+    const html = buildHtml(subject.trim(), message.trim());
+    const { sent, failed, errors } = await sendInBatches(targets, html, subject.trim());
 
     console.log(`[emailBlast] done — sent:${sent} failed:${failed} total:${targets.length}`);
 
