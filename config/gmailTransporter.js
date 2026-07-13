@@ -1,18 +1,11 @@
 const nodemailer = require('nodemailer');
 
-const port   = parseInt(process.env.EMAIL_PORT || '465');
-const secure = port === 465; // true for 465 (SSL), false for 587 (TLS)
-
 const transporter = nodemailer.createTransport({
-  host:   process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port,
-  secure,
+  host: 'live.smtp.mailtrap.io',
+  port: 587,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false, // allow self-signed certs in some environments
+    user: 'api',
+    pass: process.env.MAILTRAP_TOKEN,
   },
 });
 
@@ -22,13 +15,13 @@ const transporter = nodemailer.createTransport({
  */
 const sendEmail = async ({ to, subject, html, text }) => {
   const info = await transporter.sendMail({
-    from:    process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    from:    '"FashionTally" <no-reply@fashiontally.com>',
     to,
     subject,
     html,
     text: text || html.replace(/<[^>]*>/g, ''),
   });
-  console.log(`[gmail] Email sent to ${to}: ${info.messageId}`);
+  console.log(`[mailtrap] Email sent to ${to}: ${info.messageId}`);
   return info;
 };
 
