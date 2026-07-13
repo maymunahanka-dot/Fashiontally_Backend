@@ -1,5 +1,5 @@
-const express    = require('express');
-const router     = express.Router();
+const express = require('express');
+const router  = express.Router();
 const { getFirebaseUsers, sendEmailBlast } = require('../controllers/emailBlastController');
 
 // GET  /api/email-blast/users
