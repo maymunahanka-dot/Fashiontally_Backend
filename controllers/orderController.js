@@ -1,13 +1,18 @@
-const Order = require('../models/Order');
+// Orders are stored in the same fashiontally_designs collection as designs,
+// distinguished by type: "order" — matching how mm (the tailor portal) works.
+const Design = require('../models/Design');
 
 const createOrder = async (req, res) => {
   try {
     const data = req.body;
     const userEmail = req.effectiveEmail;
-    const newOrder = new Order({
+
+    const newOrder = new Design({
       ...data,
+      type: 'order',   // always force type = "order"
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       userEmail,
+      tailorId: userEmail,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -22,7 +27,7 @@ const createOrder = async (req, res) => {
 const deleteOrder = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await Order.findOneAndDelete({ id });
+    const deleted = await Design.findOneAndDelete({ id, type: 'order' });
     if (!deleted) return res.status(404).json({ success: false, error: 'Order not found' });
     res.json({ success: true, message: 'Order deleted successfully', data: deleted });
   } catch (error) {
@@ -35,9 +40,10 @@ const editOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const data = req.body;
-    const updated = await Order.findOneAndUpdate(
-      { id },
-      { $set: { ...data, updatedAt: new Date().toISOString() } },
+
+    const updated = await Design.findOneAndUpdate(
+      { id, type: 'order' },
+      { $set: { ...data, type: 'order', updatedAt: new Date().toISOString() } },
       { new: true }
     );
     if (!updated) return res.status(404).json({ success: false, error: 'Order not found' });
@@ -51,7 +57,7 @@ const editOrder = async (req, res) => {
 const getOrder = async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await Order.findOne({ id });
+    const order = await Design.findOne({ id, type: 'order' });
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
     res.json({ success: true, data: order });
   } catch (error) {
@@ -63,7 +69,11 @@ const getOrder = async (req, res) => {
 const getOrderByEmail = async (req, res) => {
   try {
     const email = req.effectiveEmail;
-    const orders = await Order.find({ userEmail: email }).sort({ createdAt: -1 });
+    // Match mm: type === "order" OR no type set (legacy records)
+    const orders = await Design.find({
+      userEmail: email,
+      $or: [{ type: 'order' }, { type: { $exists: false } }, { type: '' }],
+    }).sort({ createdAt: -1 });
     res.json({ success: true, data: orders });
   } catch (error) {
     console.error('❌ Error:', error);

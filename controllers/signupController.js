@@ -1,12 +1,31 @@
-const { admin } = require('../server');
+/**
+ * signupController.js  — no Firebase
+ *
+ * Flow:
+ *   1. Validate input
+ *   2. Check duplicates in auth_users + fashiontally_users
+ *   3. Hash password with bcrypt
+ *   4. Generate UUID
+ *   5. Upload logo (Cloudinary)
+ *   6. Create AuthUser in auth_users
+ *   7. Create User profile in fashiontally_users
+ *   8. Create BrandSetting
+ *   9. Send WhatsApp welcome (non-blocking)
+ */
+
+const crypto = require('crypto');
 const User = require('../models/User');
+const AuthUser = require('../models/AuthUser');
 const BrandSetting = require('../models/BrandSetting');
 const cloudinary = require('../config/cloudinary');
+const { hashPassword } = require('../utils/passwordUtils');
 const { sendWhatsAppTemplate } = require('../services/whatsappService');
 
 const signupUser = async (req, res) => {
+  console.log('[signup] ── SIGNUP ATTEMPT ───────────────────────────');
   const { name, email, phone, password, country, businessName, category } = req.body || {};
 
+  // ── Validation ──────────────────────────────────────────────
   const errors = {};
   if (!name || !String(name).trim()) errors.name = 'Name is required';
   if (!email || !String(email).trim()) {
@@ -29,31 +48,37 @@ const signupUser = async (req, res) => {
   if (!category || !String(category).trim()) errors.category = 'Category is required';
 
   if (Object.keys(errors).length > 0) {
+    console.warn('[signup] Validation errors:', errors);
     return res.status(400).json({ success: false, errors });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+  console.log(`[signup] email: ${normalizedEmail}`);
 
   try {
-    // Step 1: Check if user already exists in MongoDB before touching Firebase
+    // ── Step 1: Check duplicates ──────────────────────────────
+    console.log('[signup] Step 1: checking duplicates');
+    const existingAuth = await AuthUser.findOne({ email: normalizedEmail });
+    if (existingAuth) {
+      return res.status(400).json({ success: false, error: 'Email already in use' });
+    }
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ success: false, error: 'Email already in use' });
     }
 
-    // Step 2: Create user in Firebase Auth
-    const userRecord = await admin.auth().createUser({
-      email: normalizedEmail,
-      password: password,
-      displayName: name.trim(),
-    });
+    // ── Step 2: Hash password ──────────────────────────────────
+    console.log('[signup] Step 2: hashing password');
+    const bcryptHash = await hashPassword(password);
 
-    const now = new Date().toISOString();
-    const trialEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    // ── Step 3: Generate UID ──────────────────────────────────
+    const uid = crypto.randomUUID();
+    console.log(`[signup] Step 3: uid: ${uid}`);
 
-    // Step 3: Upload logo to Cloudinary if provided
+    // ── Step 4: Upload logo ───────────────────────────────────
     let logoUrl = '';
     if (req.file) {
+      console.log('[signup] Step 4: uploading logo');
       const result = await new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           { folder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'img', resource_type: 'image' },
@@ -62,45 +87,66 @@ const signupUser = async (req, res) => {
         stream.end(req.file.buffer);
       });
       logoUrl = result.secure_url;
+      console.log('[signup] Logo:', logoUrl);
+    } else if (req.body.logoUrl) {
+      logoUrl = req.body.logoUrl;
     }
 
-    // Step 4: Save user — upsert so retries never fail on duplicate key
+    const now          = new Date().toISOString();
+    const trialEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // ── Step 5: Create AuthUser ───────────────────────────────
+    console.log('[signup] Step 5: creating AuthUser');
+    await new AuthUser({
+      email:         normalizedEmail,
+      firebaseUid:   null,
+      provider:      'email',
+      bcryptHash,
+      displayName:   name.trim(),
+      emailVerified: false,
+      disabled:      false,
+    }).save();
+    console.log('[signup] AuthUser saved ✅');
+
+    // ── Step 6: Create User profile ──────────────────────────
+    console.log('[signup] Step 6: creating User profile');
     const newUser = await User.findOneAndUpdate(
       { email: normalizedEmail },
       {
         $setOnInsert: {
-          uid:                userRecord.uid,
-          id:                 normalizedEmail,
-          role:               'Designer',
-          name:               name.trim(),
-          phone:              phone.trim(),
-          originalPhone:      phone.trim(),
-          country:            country.trim(),
-          state:              '',
-          lga:                '',
-          address:            '',
-          email:              normalizedEmail,
-          originalEmail:      normalizedEmail,
+          uid,
+          id:                  normalizedEmail,
+          role:                'Designer',
+          name:                name.trim(),
+          phone:               phone.trim(),
+          originalPhone:       phone.trim(),
+          country:             country.trim(),
+          state:               '',
+          lga:                 '',
+          address:             '',
+          email:               normalizedEmail,
+          originalEmail:       normalizedEmail,
           isPhoneBasedAccount: false,
-          createdAt:          now,
-          businessName:       businessName.trim(),
-          businessCategory:   category.trim(),
-          logoUrl:            logoUrl,
-          subscriptionType:   'trial',
-          isTrialActive:      true,
-          planType:           'Growth',
+          createdAt:           now,
+          businessName:        businessName.trim(),
+          businessCategory:    category.trim(),
+          logoUrl,
+          subscriptionType:    'trial',
+          isTrialActive:       true,
+          planType:            'Growth',
           subscriptionEndDate: trialEndDate,
-          isSubscribed:       true,
-          trialStartDate:     now,
+          isSubscribed:        true,
+          trialStartDate:      now,
         },
       },
       { upsert: true, new: true }
     );
+    console.log('[signup] User profile saved ✅');
 
-    // Step 5: Create BrandSetting — upsert so it never fails if already exists
-    console.log('🏷️ Creating BrandSetting for:', normalizedEmail);
+    // ── Step 7: Create BrandSetting ──────────────────────────
+    console.log('[signup] Step 7: creating BrandSetting');
     try {
-      const brandResult = await BrandSetting.findOneAndUpdate(
+      await BrandSetting.findOneAndUpdate(
         { userEmail: normalizedEmail },
         {
           $setOnInsert: {
@@ -109,37 +155,30 @@ const signupUser = async (req, res) => {
             businessName:  businessName.trim(),
             businessEmail: normalizedEmail,
             businessPhone: phone.trim(),
-            logoUrl:       logoUrl,
+            logoUrl,
           },
         },
         { upsert: true, new: true }
       );
-      console.log('✅ BrandSetting result:', JSON.stringify(brandResult));
+      console.log('[signup] BrandSetting saved ✅');
     } catch (brandErr) {
-      console.error('❌ BrandSetting save failed:', brandErr.message, brandErr.code);
+      console.error('[signup] BrandSetting failed (non-fatal):', brandErr.message);
     }
 
-    res.status(201).json({
-      success: true,
-      message: 'User created successfully',
-      user: newUser,
-    });
+    res.status(201).json({ success: true, message: 'User created successfully', user: newUser });
 
-    // Step 6: Send WhatsApp welcome message (non-blocking)
+    // ── Step 8: WhatsApp welcome (non-blocking) ──────────────
     if (phone) {
       sendWhatsAppTemplate(phone.trim(), { 1: name.trim() })
-        .then((waResult) => {
-          if (!waResult.success) console.warn('⚠️ WhatsApp welcome not sent:', waResult.error);
-          else console.log('✅ WhatsApp welcome sent to:', phone.trim());
+        .then(r => {
+          if (!r.success) console.warn('[signup] WhatsApp not sent:', r.error);
+          else console.log('[signup] WhatsApp sent ✅');
         })
-        .catch((err) => console.error('❌ WhatsApp welcome error:', err.message));
+        .catch(e => console.error('[signup] WhatsApp error:', e.message));
     }
 
   } catch (error) {
-    if (error.code === 'auth/email-already-exists') {
-      return res.status(400).json({ success: false, error: 'Email already in use' });
-    }
-    console.error('❌ Signup error:', error.message);
+    console.error('[signup] Error:', error.message, error.stack);
     res.status(500).json({ success: false, error: error.message });
   }
 };

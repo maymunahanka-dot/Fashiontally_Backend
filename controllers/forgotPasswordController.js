@@ -1,8 +1,21 @@
-const { admin } = require('../server');
+/**
+ * forgotPasswordController.js  — no Firebase
+ *
+ * Flow:
+ *   1. Validate email
+ *   2. Check user exists in fashiontally_users
+ *   3. Ensure AuthUser record exists in auth_users
+ *   4. Generate secure token, store with 1-hour expiry in auth_users
+ *   5. Send email with link to our own reset page
+ */
+
 const User = require('../models/User');
+const AuthUser = require('../models/AuthUser');
 const transporter = require('../config/mailtrap');
+const { generateToken, tokenExpiry } = require('../utils/tokenUtils');
 
 const forgotPassword = async (req, res) => {
+  console.log('[forgotPassword] ── FORGOT PASSWORD ──────────────────');
   try {
     const { email } = req.body;
 
@@ -11,20 +24,47 @@ const forgotPassword = async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    console.log(`[forgotPassword] email: ${normalizedEmail}`);
 
-    // Check user exists in MongoDB
+    // ── Step 1: Check user profile ───────────────────────────
+    console.log('[forgotPassword] Step 1: checking fashiontally_users');
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(404).json({ success: false, error: 'No account found with this email address.' });
+      console.warn(`[forgotPassword] No user profile: ${normalizedEmail}`);
+      // Always return generic message — prevent email enumeration
+      return res.json({ success: true, message: 'If this email exists, a reset link has been sent.' });
     }
 
-    // Generate reset link via Firebase Admin
-    const resetLink = await admin.auth().generatePasswordResetLink(normalizedEmail);
+    // ── Step 2: Find auth record ─────────────────────────────
+    console.log('[forgotPassword] Step 2: checking auth_users');
+    const authUser = await AuthUser.findOne({ email: normalizedEmail });
+    if (!authUser) {
+      console.warn(`[forgotPassword] No auth record: ${normalizedEmail}`);
+      return res.json({ success: true, message: 'If this email exists, a reset link has been sent.' });
+    }
 
-    // Send custom email via Mailtrap
+    // ── Step 3: Generate token ───────────────────────────────
+    console.log('[forgotPassword] Step 3: generating reset token');
+    const token  = generateToken();
+    const expiry = tokenExpiry(60);
+
+    authUser.resetToken       = token;
+    authUser.resetTokenExpiry = expiry;
+    await authUser.save();
+    console.log(`[forgotPassword] Token saved, expires: ${expiry.toISOString()}`);
+
+    // ── Step 4: Build reset link ─────────────────────────────
+    // Points to the backend GET /api/auth/reset-password?token=xxx
+    // which serves an HTML form — no frontend dependency
+    const backendBase = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const resetLink   = `${backendBase}/api/auth/reset-password?token=${token}`;
+    console.log(`[forgotPassword] Reset link built`);
+
+    // ── Step 5: Send email ───────────────────────────────────
+    console.log('[forgotPassword] Step 5: sending email');
     await transporter.sendMail({
-      from: '"FashionTally" <no-reply@fashiontally.com>',
-      to: normalizedEmail,
+      from:    '"FashionTally" <no-reply@fashiontally.com>',
+      to:      normalizedEmail,
       subject: 'Reset Your FashionTally Password',
       html: `
         <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
@@ -44,7 +84,7 @@ const forgotPassword = async (req, res) => {
               </a>
             </div>
             <p style="color: #9ca3af; font-size: 13px; line-height: 1.6; margin: 0;">
-              This link will expire in <strong>1 hour</strong>. If you didn't request a password reset, you can safely ignore this email — your password will not change.
+              This link will expire in <strong>1 hour</strong>. If you didn't request a password reset, you can safely ignore this email.
             </p>
           </div>
           <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
@@ -54,16 +94,11 @@ const forgotPassword = async (req, res) => {
       `,
     });
 
+    console.log('[forgotPassword] Email sent ✅');
     res.json({ success: true, message: 'If this email exists, a reset link has been sent.' });
 
   } catch (error) {
-    console.error('❌ Forgot password error:', error);
-
-    // Firebase error: user not found in Firebase Auth
-    if (error.code === 'auth/user-not-found') {
-      return res.status(404).json({ success: false, error: 'No account found with this email address.' });
-    }
-
+    console.error('[forgotPassword] Error:', error.message, error.stack);
     res.status(500).json({ success: false, error: 'Failed to send reset email. Please try again.' });
   }
 };

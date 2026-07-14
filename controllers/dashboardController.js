@@ -1,6 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
-const Order = require('../models/Order');
+const Order = require('../models/Design');  // Orders use the Design model with type: "order"
 const Inventory = require('../models/Inventory');
 const Appointment = require('../models/Appointment');
 
@@ -18,7 +18,7 @@ const getDashboardStats = async (req, res) => {
 
     const [clients, orders, invoices, inventory, appointments] = await Promise.all([
       Client.find({ userEmail: email }),
-      Order.find({ userEmail: email }),
+      Order.find({ userEmail: email, $or: [{ type: 'order' }, { type: { $exists: false } }, { type: '' }] }),
       Invoice.find({ userEmail: email }),
       Inventory.find({ userEmail: email }),
       Appointment.find({ userEmail: email }),
