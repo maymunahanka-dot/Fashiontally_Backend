@@ -73,4 +73,21 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { getAllUsers, editUser, deleteUser };
+// GET export all user emails as CSV
+const exportUserEmails = async (req, res) => {
+  try {
+    const users = await User.find({}, 'email -_id').lean();
+
+    const csvRows = ['email', ...users.map((u) => u.email)];
+    const csvContent = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="user_emails.csv"');
+    res.status(200).send(csvContent);
+  } catch (error) {
+    console.error('❌ Error exporting emails:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { getAllUsers, editUser, deleteUser, exportUserEmails };

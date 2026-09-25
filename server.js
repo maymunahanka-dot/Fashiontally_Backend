@@ -7,7 +7,12 @@ require('dotenv').config();
 const app = express();
 
 // ── Middleware ────────────────────────────────────────────────
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options(/.*/, cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -18,7 +23,6 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
 
 // ── MongoDB ───────────────────────────────────────────────────
 const connectMongoDB = require('./config/mongodb');
-connectMongoDB();
 
 // No Firebase Admin — auth is fully MongoDB-based
 console.log('✅ Auth: MongoDB-based (no Firebase)');
@@ -30,9 +34,13 @@ require('./firebase/firebase-admin');
 const { startDailyNotificationScheduler } = require('./services/dailyNotifications.service');
 startDailyNotificationScheduler();
 
-// ── Firebase → MongoDB sync scheduler (every hour) ───────────
+// ── Firebase ↔ MongoDB two-way sync ──────────────────────────
 const { startSyncScheduler } = require('./services/syncScheduler.service');
-startSyncScheduler();
+
+// ── MongoDB → Firebase sync middleware ───────────────────────
+// Must be registered BEFORE routes so it wraps all route handlers.
+const { firebaseSyncMiddleware } = require('./middleware/firebaseSync');
+app.use(firebaseSyncMiddleware);
 
 // ── Routes ────────────────────────────────────────────────────
 const signupRoutes                  = require('./routes/signup');
@@ -123,6 +131,10 @@ app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
 app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
 app.use('/api/email-blast', emailBlastRoutes);               // GET /users  POST /send
 
+// ── Sync control & monitoring ─────────────────────────────
+const syncControlRoutes = require('./routes/syncControl');
+app.use('/api/sync', syncControlRoutes);
+
 // ── Protected test route ──────────────────────────────────────
 const { verifyToken } = require('./middleware/auth');
 
@@ -137,9 +149,30 @@ app.get('/api/test-auth', verifyToken, (req, res) => {
 
 // ── Start ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`✅ Auth: MongoDB-based (no Firebase)`);
-});
+
+async function boot() {
+  try {
+    // 1. Connect MongoDB FIRST — everything else depends on it
+    console.log('[boot] Connecting to MongoDB...');
+    await connectMongoDB();
+
+    // 2. Start HTTP server
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+      console.log(`✅ Auth: MongoDB-based (no Firebase)`);
+    });
+
+    // 3. Start Firebase ↔ MongoDB sync AFTER MongoDB is ready
+    console.log('[boot] Starting Firebase ↔ MongoDB sync...');
+    await startSyncScheduler();
+
+  } catch (err) {
+    console.error('[boot] ❌ Fatal startup error:', err.message);
+    console.error(err.stack);
+    process.exit(1);
+  }
+}
+
+boot();
 
 module.exports = {};

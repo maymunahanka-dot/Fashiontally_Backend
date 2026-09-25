@@ -103,7 +103,8 @@ const deleteMeasurement = async (req, res) => {
 
     const deleted = await Measurement.findOneAndDelete({ id, userEmail });
     if (!deleted) return res.status(404).json({ success: false, error: 'Measurement not found' });
-    res.json({ success: true, message: 'Measurement deleted' });
+    // Return the deleted doc in data so the sync middleware can push the delete to Firebase
+    res.json({ success: true, message: 'Measurement deleted', data: deleted });
   } catch (error) {
     console.error('❌ deleteMeasurement error:', error);
     res.status(500).json({ success: false, error: error.message });

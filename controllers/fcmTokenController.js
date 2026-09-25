@@ -1,14 +1,4 @@
-/**
- * controllers/fcmTokenController.js
- *
- * Handles all FCM device token operations for the authenticated user.
- *
- * Routes:
- *   PUT    /api/user/fcm-token              — register a device
- *   PUT    /api/user/notifications/toggle   — enable/disable one device
- *   DELETE /api/user/fcm-token              — remove a device (logout)
- *   GET    /api/user/devices                — list all registered devices
- */
+
 
 const User = require('../models/User');
 
