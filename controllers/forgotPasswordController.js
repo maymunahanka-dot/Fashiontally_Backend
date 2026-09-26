@@ -11,7 +11,7 @@
 
 const User = require('../models/User');
 const AuthUser = require('../models/AuthUser');
-const transporter = require('../config/mailtrap');
+const { sendBrevoEmail } = require('../config/brevo');
 const { generateToken, tokenExpiry } = require('../utils/tokenUtils');
 
 const forgotPassword = async (req, res) => {
@@ -61,9 +61,8 @@ const forgotPassword = async (req, res) => {
     console.log(`[forgotPassword] Reset link built`);
 
     // ── Step 5: Send email ───────────────────────────────────
-    console.log('[forgotPassword] Step 5: sending email');
-    await transporter.sendMail({
-      from:    '"FashionTally" <no-reply@fashiontally.com>',
+    console.log('[forgotPassword] Step 5: sending email via Brevo');
+    await sendBrevoEmail({
       to:      normalizedEmail,
       subject: 'Reset Your FashionTally Password',
       html: `

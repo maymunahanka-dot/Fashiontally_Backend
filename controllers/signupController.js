@@ -20,6 +20,7 @@ const BrandSetting = require('../models/BrandSetting');
 const cloudinary = require('../config/cloudinary');
 const { hashPassword } = require('../utils/passwordUtils');
 const { sendWhatsAppTemplate } = require('../services/whatsappService');
+const { sendBrevoEmail } = require('../config/brevo');
 
 const signupUser = async (req, res) => {
   console.log('[signup] ── SIGNUP ATTEMPT ───────────────────────────');
@@ -176,6 +177,48 @@ const signupUser = async (req, res) => {
         })
         .catch(e => console.error('[signup] WhatsApp error:', e.message));
     }
+
+    // ── Step 9: Welcome email via Brevo (non-blocking) ───────
+    sendBrevoEmail({
+      to:      normalizedEmail,
+      subject: `Welcome to FashionTally, ${name.trim().split(' ')[0]}! 🎉`,
+      html: `
+        <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
+          <div style="background: #16988d; padding: 32px 40px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">FashionTally</h1>
+          </div>
+          <div style="padding: 40px;">
+            <h2 style="color: #111827; font-size: 20px; margin: 0 0 12px 0;">Welcome, ${name.trim()}! 👋</h2>
+            <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
+              Your FashionTally account is ready. You're on a <strong>7-day free trial</strong> — explore everything the platform has to offer.
+            </p>
+            <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+              Here's what you can do right away:
+            </p>
+            <ul style="color: #374151; font-size: 15px; line-height: 2; padding-left: 20px; margin: 0 0 24px 0;">
+              <li>Add your clients and track their measurements</li>
+              <li>Create and manage orders</li>
+              <li>Send invoices and track payments</li>
+              <li>Schedule appointments</li>
+              <li>Manage your inventory</li>
+            </ul>
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="https://app.fashiontally.com" style="background: #16988d; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; display: inline-block;">
+                Get Started
+              </a>
+            </div>
+            <p style="color: #9ca3af; font-size: 13px; line-height: 1.6; margin: 0;">
+              If you have any questions, reply to this email — we're happy to help.
+            </p>
+          </div>
+          <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
+          </div>
+        </div>
+      `,
+    })
+    .then(() => console.log('[signup] Welcome email sent ✅'))
+    .catch(e => console.error('[signup] Welcome email error:', e.message));
 
   } catch (error) {
     console.error('[signup] Error:', error.message, error.stack);

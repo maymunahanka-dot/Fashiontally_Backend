@@ -1,38 +1,27 @@
 /**
- * Email Service (Backend)
- * Sends OTP and other transactional emails via Mailtrap (nodemailer)
+ * services/emailService.js
+ *
+ * Sends transactional emails via Brevo (formerly Sendinblue).
  */
 
-const transporter = require('../config/mailtrap');
+const { sendBrevoEmail } = require('../config/brevo');
 
-/**
- * Generate a random numeric OTP
- * @param {number} length - number of digits (default 6)
- * @returns {string}
- */
-const generateOTP = (length = 6) => {
-  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
-};
+const generateOTP = (length = 6) =>
+  Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
 
-/**
- * Send OTP to an email address
- * @param {string} email - recipient email address
- * @returns {Promise<{success: boolean, otp?: string, error?: string}>}
- */
 const sendEmailOTP = async (email) => {
-  if (!process.env.MAILTRAP_TOKEN) {
-    const err = 'Email OTP not configured. Add MAILTRAP_TOKEN to .env';
+  if (!process.env.BREVO_API_KEY) {
+    const err = 'Email OTP not configured. Add BREVO_API_KEY to .env';
     console.warn(err);
     return { success: false, error: err };
   }
 
-  const otp = generateOTP(6);
+  const otp            = generateOTP(6);
   const expiresMinutes = 10;
 
   try {
-    await transporter.sendMail({
-      from: '"FashionTally" <no-reply@fashiontally.com>',
-      to: email,
+    await sendBrevoEmail({
+      to:      email,
       subject: 'Your FashionTally Verification Code',
       html: `
         <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
@@ -60,15 +49,12 @@ const sendEmailOTP = async (email) => {
       `,
     });
 
-    console.log('✅ Email OTP sent to:', email, '| OTP:', otp);
+    console.log('✅ Email OTP sent via Brevo to:', email);
     return { success: true, otp };
   } catch (error) {
-    console.error('❌ Email OTP error:', error.message);
-    return { success: false, error: error.message };
+    console.error('❌ Brevo email OTP error:', error.response?.data || error.message);
+    return { success: false, error: error.response?.data?.message || error.message };
   }
 };
 
-module.exports = {
-  sendEmailOTP,
-  generateOTP,
-};
+module.exports = { sendEmailOTP, generateOTP };
