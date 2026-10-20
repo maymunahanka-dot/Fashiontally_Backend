@@ -1,6 +1,10 @@
 const User                   = require('../models/User');
 const BroadcastNotification  = require('../models/BroadcastNotification');
+<<<<<<< HEAD
 const { deliverPush }        = require('../services/notification.service');
+=======
+const admin                  = require('../firebase/firebase-admin');
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
 
 
 const sendBroadcast = async (req, res) => {
@@ -40,6 +44,7 @@ const sendBroadcast = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     const devices = [];
     for (const user of users) {
       const enabledTokens = (user.fcmTokens || []).filter(d => d.enabled && d.token);
@@ -63,6 +68,68 @@ const sendBroadcast = async (req, res) => {
       const uid = String(userWithToken._id);
       if (!invalidTokensByUser[uid]) invalidTokensByUser[uid] = [];
       invalidTokensByUser[uid].push(token);
+=======
+    // ── 2. Build one FCM message per enabled token across all users ───────
+    const messages = [];
+    const tokenToUser = {}; // token → user email (for logging)
+
+    for (const user of users) {
+      const enabledTokens = (user.fcmTokens || []).filter(d => d.enabled && d.token);
+      for (const device of enabledTokens) {
+        messages.push({
+          token: device.token,
+          notification: { title: title.trim(), body: body.trim() },
+          android: {
+            priority: 'high',
+            notification: { sound: 'default' },
+          },
+          apns: {
+            payload: { aps: { sound: 'default' } },
+          },
+        });
+        tokenToUser[device.token] = user.email;
+      }
+    }
+
+    console.log(`[broadcast] Sending to ${messages.length} device tokens across ${users.length} users`);
+
+    // ── 3. Send in batches of 500 (FCM sendEach limit) ────────────────────
+    let totalDelivered = 0;
+    let totalFailed    = 0;
+    const invalidTokensByUser = {}; // userId → [token]
+
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      const batch    = messages.slice(i, i + BATCH_SIZE);
+      const response = await admin.messaging().sendEach(batch);
+
+      totalDelivered += response.successCount;
+      totalFailed    += response.failureCount;
+
+      // Collect invalid tokens to remove from DB
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const code = resp.error?.code;
+          const token = batch[idx].token;
+          console.warn(`[broadcast] Failed for ${tokenToUser[token] || token.slice(0, 20)} — ${code}: ${resp.error?.message}`);
+
+          if (
+            code === 'messaging/registration-token-not-registered' ||
+            code === 'messaging/invalid-registration-token'
+          ) {
+            // Find the userId for this token
+            const userWithToken = users.find(u =>
+              u.fcmTokens.some(d => d.token === token)
+            );
+            if (userWithToken) {
+              const uid = String(userWithToken._id);
+              if (!invalidTokensByUser[uid]) invalidTokensByUser[uid] = [];
+              invalidTokensByUser[uid].push(token);
+            }
+          }
+        }
+      });
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
     }
 
     // ── 4. Clean up stale tokens ──────────────────────────────────────────

@@ -19,6 +19,7 @@ const saveFcmToken = async (req, res) => {
     }
 
     const email = req.effectiveEmail;
+<<<<<<< HEAD
     const cleanToken = token.trim();
     const cleanPlatform = platform || 'web';
     const cleanDevice = typeof deviceName === 'string' ? deviceName.trim() : '';
@@ -58,10 +59,28 @@ const saveFcmToken = async (req, res) => {
         }
       );
 
+=======
+
+    // Check if this exact token already exists for this user
+    const existing = await User.findOne({ email, 'fcmTokens.token': token.trim() });
+
+    if (existing) {
+      // Token already registered — just update deviceName/platform in case they changed
+      await User.updateOne(
+        { email, 'fcmTokens.token': token.trim() },
+        {
+          $set: {
+            'fcmTokens.$.platform':   platform   || 'web',
+            'fcmTokens.$.deviceName': deviceName || '',
+          }
+        }
+      );
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
       console.log(`[fcmToken] Token already exists, updated metadata for: ${email}`);
       return res.json({ success: true, message: 'Device token updated' });
     }
 
+<<<<<<< HEAD
     const inserted = await User.updateOne(
       { email, fcmTokens: { $not: { $elemMatch: match } } },
       {
@@ -70,6 +89,17 @@ const saveFcmToken = async (req, res) => {
             token:      cleanToken,
             platform:   cleanPlatform,
             deviceName: cleanDevice,
+=======
+    // New token — push it into the array
+    await User.updateOne(
+      { email },
+      {
+        $push: {
+          fcmTokens: {
+            token:      token.trim(),
+            platform:   platform   || 'web',
+            deviceName: deviceName || '',
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
             addedAt:    new Date().toISOString(),
             enabled:    true,
           }
@@ -77,12 +107,16 @@ const saveFcmToken = async (req, res) => {
       }
     );
 
+<<<<<<< HEAD
     if (inserted.matchedCount === 0) {
       console.log(`[fcmToken] Token already exists, skipped for: ${email}`);
       return res.json({ success: true, message: 'Device token updated' });
     }
 
     console.log(`[fcmToken] ✅ New device registered for: ${email} (${cleanPlatform})`);
+=======
+    console.log(`[fcmToken] ✅ New device registered for: ${email} (${platform || 'web'})`);
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
     res.json({ success: true, message: 'Device registered successfully' });
 
   } catch (error) {

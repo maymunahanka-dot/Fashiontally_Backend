@@ -2,7 +2,11 @@
 
 const admin = require('../firebase/firebase-admin');
 const User  = require('../models/User');
+<<<<<<< HEAD
 const { sendApns } = require('./apns.service');
+=======
+
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
 
 const sendNotification = async (userId, title, body, data = {}) => {
   try {
@@ -27,12 +31,55 @@ const sendNotification = async (userId, title, body, data = {}) => {
       return;
     }
 
+<<<<<<< HEAD
     const dataPayload = Object.fromEntries(
       Object.entries(data).map(([k, v]) => [k, String(v)])
     );
     const result = await deliverPush(enabledTokens, title, body, dataPayload);
     console.log(`[notification] Sent to ${user.email} — success: ${result.delivered}, failed: ${result.failed}`);
     const invalidTokens = result.invalidTokens;
+=======
+    // ── 3. Build one FCM message per enabled device token ───
+    const dataPayload = Object.fromEntries(
+      Object.entries(data).map(([k, v]) => [k, String(v)])
+    );
+
+    const messages = enabledTokens.map(d => ({
+      token: d.token,
+      notification: { title, body },
+      data: dataPayload,
+      android: {
+        priority: 'high',
+        notification: { sound: 'default', clickAction: 'FLUTTER_NOTIFICATION_CLICK' },
+      },
+      apns: {
+        payload: { aps: { sound: 'default' } },
+      },
+    }));
+
+    // ── 4. Send to all enabled devices in one batch call ────
+    const batchResponse = await admin.messaging().sendEach(messages);
+
+    console.log(`[notification] Sent to ${user.email} — success: ${batchResponse.successCount}, failed: ${batchResponse.failureCount}`);
+
+    // ── 5. Auto-remove invalid / expired tokens ─────────────
+    const invalidTokens = [];
+
+    batchResponse.responses.forEach((resp, idx) => {
+      if (!resp.success) {
+        const code = resp.error?.code;
+        if (
+          code === 'messaging/registration-token-not-registered' ||
+          code === 'messaging/invalid-registration-token'
+        ) {
+          invalidTokens.push(enabledTokens[idx].token);
+          console.warn(`[notification] Removing stale token for ${user.email}: ${enabledTokens[idx].token.slice(0, 20)}...`);
+        } else {
+          console.error(`[notification] Send failed for ${user.email} (${code}):`, resp.error?.message);
+        }
+      }
+    });
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
 
     // Pull invalid tokens out of the DB
     if (invalidTokens.length > 0) {
@@ -48,6 +95,7 @@ const sendNotification = async (userId, title, body, data = {}) => {
   }
 };
 
+<<<<<<< HEAD
 async function deliverPush(devices, title, body, data = {}) {
   const iosDevices = devices.filter((d) => d.platform === 'ios' && d.token);
   const fcmDevices = devices.filter((d) => d.platform !== 'ios' && d.token);
@@ -100,8 +148,14 @@ async function deliverPush(devices, title, body, data = {}) {
   return { delivered, failed, invalidTokens };
 }
 
+=======
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
 const sendNotificationToMany = async (userIds, title, body, data = {}) => {
   await Promise.all(userIds.map(id => sendNotification(id, title, body, data)));
 };
 
+<<<<<<< HEAD
 module.exports = { sendNotification, sendNotificationToMany, deliverPush };
+=======
+module.exports = { sendNotification, sendNotificationToMany };
+>>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
