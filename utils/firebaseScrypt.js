@@ -1,3 +1,4 @@
+# Google OAuth — get Client ID from console.cloud.google.com → APIs & Services → Credentials → Web client
 
 
 const { FirebaseScrypt } = require('firebase-scrypt');
