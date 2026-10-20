@@ -1,10 +1,7 @@
 
-
 const User = require('../models/User');
 
 // ── Register / update a device token ─────────────────────────────────────────
-// Called by the app right after login to add this device to the user's list.
-// If the token already exists it is skipped (no duplicates).
 const saveFcmToken = async (req, res) => {
   try {
     const { token, platform, deviceName } = req.body;
@@ -18,9 +15,8 @@ const saveFcmToken = async (req, res) => {
       return res.status(400).json({ success: false, error: 'platform must be ios, android, or web' });
     }
 
-    const email = req.effectiveEmail;
-<<<<<<< HEAD
-    const cleanToken = token.trim();
+    const email       = req.effectiveEmail;
+    const cleanToken  = token.trim();
     const cleanPlatform = platform || 'web';
     const cleanDevice = typeof deviceName === 'string' ? deviceName.trim() : '';
 
@@ -29,7 +25,7 @@ const saveFcmToken = async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Same token, or the same device logging in again, is one record.
+    // Match same token OR same device name+platform (re-login on same device)
     const match = cleanDevice
       ? { $or: [{ token: cleanToken }, { deviceName: cleanDevice, platform: cleanPlatform }] }
       : { token: cleanToken };
@@ -37,11 +33,11 @@ const saveFcmToken = async (req, res) => {
     const existing = await User.findOne({ email, fcmTokens: { $elemMatch: match } }).select('fcmTokens');
 
     if (existing) {
-      const matches = (existing.fcmTokens || []).filter((device) =>
-        device.token === cleanToken ||
-        (cleanDevice && (device.deviceName || '') === cleanDevice && (device.platform || 'web') === cleanPlatform)
+      const matches = (existing.fcmTokens || []).filter((d) =>
+        d.token === cleanToken ||
+        (cleanDevice && (d.deviceName || '') === cleanDevice && (d.platform || 'web') === cleanPlatform)
       );
-      const keep = matches.find((device) => device.token === cleanToken) || matches[0];
+      const keep = matches.find((d) => d.token === cleanToken) || matches[0];
 
       await User.updateOne({ email }, { $pull: { fcmTokens: match } });
       await User.updateOne(
@@ -54,33 +50,14 @@ const saveFcmToken = async (req, res) => {
               deviceName: cleanDevice,
               addedAt:    keep?.addedAt || new Date().toISOString(),
               enabled:    keep?.enabled !== false,
-            }
-          }
+            },
+          },
         }
       );
-
-=======
-
-    // Check if this exact token already exists for this user
-    const existing = await User.findOne({ email, 'fcmTokens.token': token.trim() });
-
-    if (existing) {
-      // Token already registered — just update deviceName/platform in case they changed
-      await User.updateOne(
-        { email, 'fcmTokens.token': token.trim() },
-        {
-          $set: {
-            'fcmTokens.$.platform':   platform   || 'web',
-            'fcmTokens.$.deviceName': deviceName || '',
-          }
-        }
-      );
->>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
       console.log(`[fcmToken] Token already exists, updated metadata for: ${email}`);
       return res.json({ success: true, message: 'Device token updated' });
     }
 
-<<<<<<< HEAD
     const inserted = await User.updateOne(
       { email, fcmTokens: { $not: { $elemMatch: match } } },
       {
@@ -89,34 +66,19 @@ const saveFcmToken = async (req, res) => {
             token:      cleanToken,
             platform:   cleanPlatform,
             deviceName: cleanDevice,
-=======
-    // New token — push it into the array
-    await User.updateOne(
-      { email },
-      {
-        $push: {
-          fcmTokens: {
-            token:      token.trim(),
-            platform:   platform   || 'web',
-            deviceName: deviceName || '',
->>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
             addedAt:    new Date().toISOString(),
             enabled:    true,
-          }
-        }
+          },
+        },
       }
     );
 
-<<<<<<< HEAD
     if (inserted.matchedCount === 0) {
       console.log(`[fcmToken] Token already exists, skipped for: ${email}`);
       return res.json({ success: true, message: 'Device token updated' });
     }
 
     console.log(`[fcmToken] ✅ New device registered for: ${email} (${cleanPlatform})`);
-=======
-    console.log(`[fcmToken] ✅ New device registered for: ${email} (${platform || 'web'})`);
->>>>>>> 96435ed6cc74acc54d6bb08bdbad855f2751637c
     res.json({ success: true, message: 'Device registered successfully' });
 
   } catch (error) {
@@ -126,7 +88,6 @@ const saveFcmToken = async (req, res) => {
 };
 
 // ── Toggle notifications for a specific device ────────────────────────────────
-// Body: { token: "device_token", enabled: true | false }
 const toggleDeviceNotification = async (req, res) => {
   try {
     const { token, enabled } = req.body;
@@ -139,7 +100,6 @@ const toggleDeviceNotification = async (req, res) => {
     }
 
     const email = req.effectiveEmail;
-
     const result = await User.updateOne(
       { email, 'fcmTokens.token': token.trim() },
       { $set: { 'fcmTokens.$.enabled': enabled } }
@@ -151,12 +111,7 @@ const toggleDeviceNotification = async (req, res) => {
 
     const status = enabled ? 'enabled' : 'disabled';
     console.log(`[notifications] ✅ Notifications ${status} for device token of: ${email}`);
-
-    res.json({
-      success: true,
-      message: `Notifications ${status} for this device`,
-      enabled,
-    });
+    res.json({ success: true, message: `Notifications ${status} for this device`, enabled });
 
   } catch (error) {
     console.error('[notifications] ❌ Error toggling device notification:', error.message);
@@ -165,7 +120,6 @@ const toggleDeviceNotification = async (req, res) => {
 };
 
 // ── Remove a device token (on logout) ────────────────────────────────────────
-// Body: { token: "device_token" }
 const removeFcmToken = async (req, res) => {
   try {
     const { token } = req.body;
@@ -175,11 +129,7 @@ const removeFcmToken = async (req, res) => {
     }
 
     const email = req.effectiveEmail;
-
-    await User.updateOne(
-      { email },
-      { $pull: { fcmTokens: { token: token.trim() } } }
-    );
+    await User.updateOne({ email }, { $pull: { fcmTokens: { token: token.trim() } } });
 
     console.log(`[fcmToken] ✅ Device removed for: ${email}`);
     res.json({ success: true, message: 'Device removed successfully' });
@@ -194,24 +144,20 @@ const removeFcmToken = async (req, res) => {
 const listDevices = async (req, res) => {
   try {
     const email = req.effectiveEmail;
-
     const user = await User.findOne({ email }).select('fcmTokens');
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Return device info but NOT the raw token string (security)
     const devices = (user.fcmTokens || []).map((d, idx) => ({
-      index:      idx,
-      platform:   d.platform,
-      deviceName: d.deviceName,
-      addedAt:    d.addedAt,
-      enabled:    d.enabled,
-      // Return a partial token so the frontend can identify which to toggle/remove
+      index:        idx,
+      platform:     d.platform,
+      deviceName:   d.deviceName,
+      addedAt:      d.addedAt,
+      enabled:      d.enabled,
       tokenPreview: d.token ? `${d.token.slice(0, 10)}...` : '',
-      // Full token needed for toggle/remove calls
-      token: d.token,
+      token:        d.token,
     }));
 
     res.json({ success: true, data: devices });
