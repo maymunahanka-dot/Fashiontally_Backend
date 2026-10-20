@@ -1,17 +1,25 @@
 const Payment = require('../models/Payment');
+const User    = require('../models/User');
+const { sendSubscriptionReceipt } = require('../services/emailService');
 
 const createPayment = async (req, res) => {
   try {
-    const data = req.body;
+    const data  = req.body;
     const email = req.effectiveEmail;
     const newPayment = new Payment({
       ...data,
-      id: data.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      id:        data.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       email,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
     await newPayment.save();
+
+    // Send receipt email (non-blocking)
+    User.findOne({ email }).then((user) => {
+      sendSubscriptionReceipt(email, newPayment.toObject(), user || {}).catch(() => {});
+    }).catch(() => {});
+
     res.status(201).json({ success: true, message: 'Payment created successfully', data: newPayment });
   } catch (error) {
     console.error('❌ Error:', error);

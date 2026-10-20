@@ -1,5 +1,7 @@
 const paths2 = require('./swaggerPaths2');
 const paths3 = require('./swaggerPaths3');
+const paths4 = require('./swaggerPaths4');
+const paths5 = require('./swaggerPaths5');
 
 const paths = {
   '/api/auth/signup': {
@@ -122,6 +124,32 @@ const paths = {
       responses: {
         200: { description: 'OTP sent via WhatsApp — returns { success, otp }' },
         400: { description: 'phone is required' },
+        500: { description: 'Failed to send OTP' },
+      },
+    },
+  },
+
+  '/api/auth/send-email-otp': {
+    post: {
+      summary: 'Send OTP to an email address',
+      tags: ['Auth'],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['email'],
+              properties: {
+                email: { type: 'string', example: 'jane@example.com' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'OTP sent via email — returns { success, otp }' },
+        400: { description: 'email is required or invalid email address' },
         500: { description: 'Failed to send OTP' },
       },
     },
@@ -754,11 +782,20 @@ const paths = {
 
   '/api/design/list': {
     get: {
-      summary: 'Get all designs for the authenticated user',
+      summary: 'Get designs for the authenticated user',
       tags: ['Design'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'type',
+          required: false,
+          schema: { type: 'string', enum: ['design', 'order'] },
+          description: 'Filter by type. Use "design" for designs only, "order" for orders only (includes legacy records with no type). Omit to get all records.',
+        },
+      ],
       responses: {
-        200: { description: 'Returns array of design objects sorted by createdAt descending' },
+        200: { description: 'Returns array of records sorted by createdAt descending' },
         401: { description: 'No token or invalid token' },
         500: { description: 'Server error' },
       },
@@ -783,6 +820,7 @@ const paths = {
   '/api/design/create': {
     post: {
       summary: 'Create a new design (image uploaded to Cloudinary)',
+      description: 'Send as multipart/form-data. The "data" field is a JSON string of all design fields. Optionally attach an image file. Set type="design" (default) or type="order" in the data JSON.',
       tags: ['Design'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -795,8 +833,24 @@ const paths = {
               properties: {
                 data: {
                   type: 'string',
-                  description: 'JSON string of design fields',
-                  example: '{"name":"Ankara Maxi Dress","category":"Dresses","price":85000,"clientName":"Jane","clientPhone":"08012345678","status":"Active"}',
+                  description: 'JSON string of design fields. All fields are optional except name.',
+                  example: JSON.stringify({
+                    type: 'design',
+                    name: 'Ankara Maxi Dress',
+                    category: 'Dresses',
+                    customCategory: '',
+                    description: 'Beautiful ankara dress',
+                    price: 85000,
+                    imageUrl: '',
+                    images: [],
+                    clientId: '',
+                    clientName: 'Jane Doe',
+                    clientPhone: '08012345678',
+                    clientEmail: 'jane@example.com',
+                    status: 'Active',
+                    progress: 0,
+                    dueDate: '2025-09-01',
+                  }),
                 },
                 image: { type: 'string', format: 'binary', description: 'Optional design image (max 10MB)' },
               },
@@ -805,7 +859,7 @@ const paths = {
         },
       },
       responses: {
-        201: { description: 'Design created — imageUrl stored from Cloudinary' },
+        201: { description: 'Design created — returns saved document' },
         401: { description: 'No token or invalid token' },
         500: { description: 'Server error' },
       },
@@ -829,7 +883,7 @@ const paths = {
                 data: {
                   type: 'string',
                   description: 'JSON string of fields to update',
-                  example: '{"name":"Updated Dress","price":90000}',
+                  example: '{"name":"Updated Dress","price":90000,"status":"Completed"}',
                 },
                 image: { type: 'string', format: 'binary', description: 'Optional new image' },
               },
@@ -875,7 +929,7 @@ const swaggerSpec = {
     },
   },
   security: [{ bearerAuth: [] }],
-  paths: { ...paths, ...paths2, ...paths3 },
+  paths: { ...paths, ...paths2, ...paths3, ...paths4, ...paths5 },
 };
 
 module.exports = swaggerSpec;

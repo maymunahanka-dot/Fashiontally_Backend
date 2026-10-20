@@ -24,6 +24,17 @@ const userSchema = new mongoose.Schema({
   subscriptionEndDate:{ type: String },
   isSubscribed:       { type: Boolean, default: true },
   trialStartDate:     { type: String },
+
+  // Push notification device tokens — one entry per logged-in device
+  fcmTokens: [
+    {
+      token:      { type: String, required: true },   // FCM registration token
+      platform:   { type: String, enum: ['ios', 'android', 'web'], default: 'web' },
+      deviceName: { type: String, default: '' },       // e.g. "iPhone 14", "Chrome / Windows"
+      addedAt:    { type: String, default: () => new Date().toISOString() },
+      enabled:    { type: Boolean, default: true },    // per-device notification switch
+    }
+  ],
 });
 
 module.exports = mongoose.model('fashiontally_users', userSchema);
