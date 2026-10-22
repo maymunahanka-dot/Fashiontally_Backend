@@ -1,10 +1,12 @@
 
+
 const admin = require('../firebase/firebase-admin');
 const User  = require('../models/User');
 const { sendApns } = require('./apns.service');
 
 const sendNotification = async (userId, title, body, data = {}) => {
   try {
+    // ── 1. Fetch user and their device tokens ───────────────
     const user = await User.findById(userId).select('fcmTokens email name');
 
     if (!user) {
@@ -17,6 +19,7 @@ const sendNotification = async (userId, title, body, data = {}) => {
       return;
     }
 
+    // ── 2. Filter — only send to devices where enabled === true ─
     const enabledTokens = user.fcmTokens.filter(d => d.enabled === true && d.token);
 
     if (enabledTokens.length === 0) {
@@ -27,18 +30,20 @@ const sendNotification = async (userId, title, body, data = {}) => {
     const dataPayload = Object.fromEntries(
       Object.entries(data).map(([k, v]) => [k, String(v)])
     );
-
     const result = await deliverPush(enabledTokens, title, body, dataPayload);
     console.log(`[notification] Sent to ${user.email} — success: ${result.delivered}, failed: ${result.failed}`);
+    const invalidTokens = result.invalidTokens;
 
-    if (result.invalidTokens.length > 0) {
+    // Pull invalid tokens out of the DB
+    if (invalidTokens.length > 0) {
       await User.updateOne(
         { _id: userId },
-        { $pull: { fcmTokens: { token: { $in: result.invalidTokens } } } }
+        { $pull: { fcmTokens: { token: { $in: invalidTokens } } } }
       );
     }
 
   } catch (error) {
+    // Never crash the caller — notifications are non-critical
     console.error(`[notification] ❌ Unexpected error for userId ${userId}:`, error.message);
   }
 };
@@ -50,7 +55,6 @@ async function deliverPush(devices, title, body, data = {}) {
   let failed = 0;
   const invalidTokens = [];
 
-  // ── FCM (Android + Web) ─────────────────────────────────────
   if (fcmDevices.length > 0) {
     const messages = fcmDevices.map((d) => ({
       token: d.token,
@@ -82,7 +86,6 @@ async function deliverPush(devices, title, body, data = {}) {
     }
   }
 
-  // ── APNs (iOS direct) ───────────────────────────────────────
   for (const device of iosDevices) {
     const result = await sendApns(device.token, title, body, data);
     if (result.success) {

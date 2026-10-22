@@ -1,3 +1,5 @@
+
+
 const { FirebaseScrypt } = require('firebase-scrypt');
 
 const SCRYPT_PARAMS = {

@@ -1,7 +1,7 @@
+const User                   = require('../models/User');
+const BroadcastNotification  = require('../models/BroadcastNotification');
+const { deliverPush }        = require('../services/notification.service');
 
-const User                  = require('../models/User');
-const BroadcastNotification = require('../models/BroadcastNotification');
-const { deliverPush }       = require('../services/notification.service');
 
 const sendBroadcast = async (req, res) => {
   try {
@@ -14,57 +14,67 @@ const sendBroadcast = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Message body is required' });
     }
 
-    // ── 1. Fetch all users with at least one enabled token ────────────────
+    // ── 1. Fetch all users that have at least one enabled token ───────────
     const users = await User.find(
-      { fcmTokens: { $elemMatch: { enabled: true } } },
+      { 'fcmTokens': { $elemMatch: { enabled: true } } },
       { _id: 1, email: 1, fcmTokens: 1 }
     ).lean();
 
     console.log(`[broadcast] Found ${users.length} users with enabled FCM tokens`);
 
     if (users.length === 0) {
+      // Save a record anyway so admin can see it in history
       await BroadcastNotification.create({
-        title: title.trim(), body: body.trim(),
-        totalTargeted: 0, delivered: 0, failed: 0,
+        title:         title.trim(),
+        body:          body.trim(),
+        totalTargeted: 0,
+        delivered:     0,
+        failed:        0,
       });
       return res.json({
-        success: true,
-        message: 'Notification saved, but no users have push notifications enabled.',
-        targeted: 0, delivered: 0, failed: 0,
+        success:  true,
+        message:  'Notification saved, but no users have push notifications enabled.',
+        targeted: 0,
+        delivered: 0,
+        failed:   0,
       });
     }
 
-    // ── 2. Flatten all enabled devices ────────────────────────────────────
     const devices = [];
     for (const user of users) {
-      for (const d of (user.fcmTokens || [])) {
-        if (d.enabled && d.token) {
-          devices.push({ token: d.token, platform: d.platform });
-        }
+      const enabledTokens = (user.fcmTokens || []).filter(d => d.enabled && d.token);
+      for (const device of enabledTokens) {
+        devices.push({ token: device.token, platform: device.platform });
       }
     }
 
     console.log(`[broadcast] Sending to ${devices.length} device tokens across ${users.length} users`);
 
-    // ── 3. Deliver (handles Android/web via FCM, iOS via APNs) ───────────
     const result = await deliverPush(devices, title.trim(), body.trim());
-
-    // ── 4. Clean up stale tokens ──────────────────────────────────────────
+    const totalDelivered = result.delivered;
+    const totalFailed = result.failed;
     const invalidTokensByUser = {};
+
     for (const token of result.invalidTokens) {
-      const userWithToken = users.find(u => (u.fcmTokens || []).some(d => d.token === token));
+      const userWithToken = users.find(u =>
+        (u.fcmTokens || []).some(d => d.token === token)
+      );
       if (!userWithToken) continue;
       const uid = String(userWithToken._id);
       if (!invalidTokensByUser[uid]) invalidTokensByUser[uid] = [];
       invalidTokensByUser[uid].push(token);
     }
 
+    // ── 4. Clean up stale tokens ──────────────────────────────────────────
     const staleEntries = Object.entries(invalidTokensByUser);
     if (staleEntries.length > 0) {
       console.log(`[broadcast] Removing stale tokens from ${staleEntries.length} users`);
       await Promise.all(
         staleEntries.map(([userId, tokens]) =>
-          User.updateOne({ _id: userId }, { $pull: { fcmTokens: { token: { $in: tokens } } } })
+          User.updateOne(
+            { _id: userId },
+            { $pull: { fcmTokens: { token: { $in: tokens } } } }
+          )
         )
       );
     }
@@ -74,19 +84,19 @@ const sendBroadcast = async (req, res) => {
       title:         title.trim(),
       body:          body.trim(),
       totalTargeted: users.length,
-      delivered:     result.delivered,
-      failed:        result.failed,
+      delivered:     totalDelivered,
+      failed:        totalFailed,
     });
 
-    console.log(`[broadcast] ✅ Done — targeted: ${users.length}, delivered: ${result.delivered}, failed: ${result.failed}`);
+    console.log(`[broadcast] ✅ Done — targeted: ${users.length}, delivered: ${totalDelivered}, failed: ${totalFailed}`);
 
     res.json({
       success:   true,
       message:   'Broadcast sent',
       id:        record._id,
       targeted:  users.length,
-      delivered: result.delivered,
-      failed:    result.failed,
+      delivered: totalDelivered,
+      failed:    totalFailed,
     });
 
   } catch (error) {
@@ -95,6 +105,10 @@ const sendBroadcast = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/admin/notifications
+ * Returns all past broadcasts, newest first.
+ */
 const getBroadcasts = async (req, res) => {
   try {
     const records = await BroadcastNotification.find({}).sort({ sentAt: -1 }).lean();
