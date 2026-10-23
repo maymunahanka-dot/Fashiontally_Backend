@@ -9,6 +9,7 @@ const feedbackSchema = new mongoose.Schema({
     clientEmail: { type: String, default: '' },
     rating: { type: Number, default: 0 },
     comment: { type: String, default: '' },
+    imageUrl: { type: String, default: '' },
     productName: { type: String, default: '' },
     orderNumber: { type: String, default: '' },
     invoiceNumber: { type: String, default: '' },

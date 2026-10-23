@@ -5,9 +5,11 @@ const {
   deleteBrandSetting, 
   editBrandSetting, 
   getBrandSetting, 
-  getBrandSettingByEmail 
+  getBrandSettingByEmail,
+  getExchangeRate
 } = require('../controllers/brandSettingController');
 
+router.get('/exchange-rate', getExchangeRate);
 router.post('/create', createBrandSetting);
 router.delete('/delete/:id', deleteBrandSetting);
 router.put('/edit/:id', editBrandSetting);

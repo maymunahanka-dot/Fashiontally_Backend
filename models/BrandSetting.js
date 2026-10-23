@@ -17,6 +17,7 @@ const brandSettingSchema = new mongoose.Schema({
     secondaryColor: { type: String, default: '#ffffff' },
     footerText: { type: String, default: '' },
     termsAndConditions: { type: String, default: '' },
+    inventoryCurrency: { type: String, enum: ['NGN', 'USD'], default: 'NGN' },
     updatedAt: { type: String, default: () => new Date().toISOString() },
 });
 

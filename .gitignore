@@ -1,3 +1,6 @@
 .env
-node_modules/.bin/bcrypt
+/node_modules
+/node_modules
+/node_modules
+/node_modules/.bin
 /node_modules

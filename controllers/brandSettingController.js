@@ -90,10 +90,38 @@ const getBrandSettingByEmail = async (req, res) => {
   }
 };
 
+let rateCache = { usdToNgn: null, fetchedAt: 0 };
+
+const getExchangeRate = async (req, res) => {
+  try {
+    const fresh = rateCache.usdToNgn && Date.now() - rateCache.fetchedAt < 60 * 60 * 1000;
+    if (fresh) {
+      return res.json({ success: true, usdToNgn: rateCache.usdToNgn });
+    }
+
+    const response = await fetch('https://open.er-api.com/v6/latest/USD');
+    const data = await response.json();
+    const usdToNgn = Number(data?.rates?.NGN);
+    if (!response.ok || !usdToNgn) {
+      throw new Error('Exchange rate unavailable');
+    }
+
+    rateCache = { usdToNgn, fetchedAt: Date.now() };
+    res.json({ success: true, usdToNgn });
+  } catch (error) {
+    if (rateCache.usdToNgn) {
+      return res.json({ success: true, usdToNgn: rateCache.usdToNgn });
+    }
+    console.error('❌ Error:', error);
+    res.status(502).json({ success: false, error: 'Could not load the exchange rate' });
+  }
+};
+
 module.exports = {
   createBrandSetting,
   deleteBrandSetting,
   editBrandSetting,
   getBrandSetting,
-  getBrandSettingByEmail
+  getBrandSettingByEmail,
+  getExchangeRate
 };
