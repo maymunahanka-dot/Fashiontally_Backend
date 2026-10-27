@@ -24,6 +24,10 @@ const userSchema = new mongoose.Schema({
   subscriptionEndDate:{ type: String },
   isSubscribed:       { type: Boolean, default: true },
   trialStartDate:     { type: String },
+  payment_amount:     { type: Number, default: null },
+  payment_date:       { type: String, default: null },
+  txRef:              { type: String, default: '' },
+  transactionId:      { type: String, default: '' },
 
   // Push notification device tokens — one entry per logged-in device
   fcmTokens: [

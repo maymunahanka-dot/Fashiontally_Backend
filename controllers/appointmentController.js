@@ -1,19 +1,26 @@
 const Appointment = require('../models/Appointment');
 const AppointmentBlock = require('../models/AppointmentBlock');
 
+const calendarKey = (dateStr) => {
+  const match = String(dateStr || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+};
+
 const isWeekend = (dateStr) => {
-  const [year, month, day] = String(dateStr).split('-').map(Number);
+  const key = calendarKey(dateStr);
+  const [year, month, day] = key.split('-').map(Number);
   if (!year || !month || !day) return false;
   const weekday = new Date(year, month - 1, day).getDay();
   return weekday === 0 || weekday === 6;
 };
 
 const blockedReason = async (userEmail, dateStr) => {
-  if (!dateStr) return null;
+  const key = calendarKey(dateStr);
+  if (!key) return null;
   const block = await AppointmentBlock.findOne({ userEmail });
   if (!block) return null;
-  if (block.dates?.includes(dateStr)) return 'That day is blocked.';
-  if (block.blockWeekends && isWeekend(dateStr)) return 'Weekends are blocked.';
+  if (block.dates?.includes(key)) return 'That day is blocked.';
+  if (block.blockWeekends && isWeekend(key)) return 'Weekends are blocked.';
   return null;
 };
 
@@ -63,7 +70,7 @@ const createAppointment = async (req, res) => {
   try {
     const data = req.body;
     const userEmail = req.effectiveEmail;
-    const reason = await blockedReason(userEmail, data.date);
+    const reason = await blockedReason(userEmail, data.dateKey || data.date);
     if (reason) return res.status(400).json({ success: false, error: reason });
     const newAppointment = new Appointment({
       ...data,
@@ -96,7 +103,7 @@ const editAppointment = async (req, res) => {
   try {
     const { id } = req.params;
     const data = req.body;
-    const reason = await blockedReason(req.effectiveEmail, data.date);
+    const reason = await blockedReason(req.effectiveEmail, data.dateKey || data.date);
     if (reason) return res.status(400).json({ success: false, error: reason });
     const updated = await Appointment.findOneAndUpdate(
       { id },

@@ -28,4 +28,26 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-module.exports = { verifyToken };
+/** Attaches user if a valid token is present; does not fail when missing. */
+const optionalVerifyToken = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split('Bearer ')[1];
+    if (!token) return next();
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const email = decoded.email;
+    const subAdmin = await SubAdmin.findOne({ email });
+
+    if (subAdmin?.invitedBy) {
+      req.effectiveEmail = subAdmin.invitedBy.toLowerCase();
+    } else {
+      req.effectiveEmail = email;
+    }
+    req.user = decoded;
+    next();
+  } catch {
+    next();
+  }
+};
+
+module.exports = { verifyToken, optionalVerifyToken };

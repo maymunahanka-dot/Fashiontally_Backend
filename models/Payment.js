@@ -12,7 +12,7 @@ const paymentSchema = new mongoose.Schema({
     gateway: { type: String, default: '' },
     paymentLink: { type: String, default: '' },
     transactionId: { type: String, default: '' },
-    providerTransactionId: { type: String, default: '' },
+    providerTransactionId: { type: String, default: '', index: true },
     paidAt: { type: String, default: '' },
     createdAt: { type: String, default: () => new Date().toISOString() },
     updatedAt: { type: String, default: () => new Date().toISOString() },

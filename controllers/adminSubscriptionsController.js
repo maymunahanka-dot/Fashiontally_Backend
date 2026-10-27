@@ -102,4 +102,41 @@ const cancelSubscription = async (req, res) => {
   }
 };
 
-module.exports = { getSubscriptions, grantTrial, cancelSubscription };
+// POST recover a Flutterwave payment that never reached FashionTally
+const recoverPayment = async (req, res) => {
+  try {
+    const transactionId = req.body.transactionId || req.body.transaction_id;
+    const email = req.body.email || '';
+    const planType = req.body.planType || req.body.plantype || '';
+
+    if (!transactionId) {
+      return res.status(400).json({ success: false, error: 'Flutterwave transactionId is required' });
+    }
+
+    const { verifyAndActivate } = require('../services/flutterwavePayment.service');
+    const result = await verifyAndActivate({
+      transactionId,
+      email,
+      planType,
+      allowEmailOverride: Boolean(email),
+    });
+
+    res.json({
+      success: true,
+      message: result.message,
+      alreadyProcessed: result.alreadyProcessed,
+      data: {
+        email: result.user?.email,
+        name: result.user?.name,
+        planType: result.user?.planType,
+        subscriptionEndDate: result.user?.subscriptionEndDate,
+        paymentAmount: result.payment?.planPrice,
+      },
+    });
+  } catch (error) {
+    console.error('❌ recoverPayment:', error.message);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { getSubscriptions, grantTrial, cancelSubscription, recoverPayment };
