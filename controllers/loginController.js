@@ -17,6 +17,22 @@ const SubAdmin = require('../models/SubAdmin');
 const { verifyPassword, migrateTobcrypt } = require('../utils/passwordUtils');
 const { sendNotification } = require('../services/notification.service');
 
+/** Rough "Chrome on Windows" / "FashionTally app on iPhone" label from the request. */
+const describeDevice = (req) => {
+  const ua = String(req.headers['user-agent'] || '');
+  const os = /iPhone|iPad|iOS|CFNetwork|Darwin/i.test(ua) ? 'iPhone'
+    : /Android|okhttp/i.test(ua) ? 'Android'
+    : /Windows/i.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+    : /Linux/i.test(ua) ? 'Linux' : '';
+  const app = /okhttp|CFNetwork|Expo|ReactNative/i.test(ua) ? 'the FashionTally app'
+    : /Edg\//.test(ua) ? 'Edge'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : /Safari\//.test(ua) ? 'Safari' : '';
+  return [app, os].filter(Boolean).join(' on ') || 'a new device';
+};
+
 const loginUser = async (req, res) => {
   console.log('[login] ── LOGIN ATTEMPT ──────────────────────────────');
   const { email, password } = req.body || {};
@@ -80,12 +96,15 @@ const loginUser = async (req, res) => {
         { expiresIn: '7d' }
       );
       console.log('[login] Regular user — success ✅');
+      // Security alert to the owner's other devices. The device signing in now
+      // isn't registered yet (apps remove their token on logout), so it's excluded.
       // Fire-and-forget — does not delay the login response
       sendNotification(
         user._id,
-        'Login Successful',
-        'You just logged into your account.',
-        { type: 'login' }
+        '🔐 New sign-in to your account',
+        `Someone signed in from ${describeDevice(req)}. If this wasn't you, change your password now.`,
+        { type: 'login' },
+        { audience: 'owner' }
       ).catch(() => {});
       return res.json({ success: true, token, user });
     }

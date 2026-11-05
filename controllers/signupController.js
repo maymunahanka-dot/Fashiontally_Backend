@@ -20,11 +20,13 @@ const BrandSetting = require('../models/BrandSetting');
 const cloudinary = require('../config/cloudinary');
 const { hashPassword } = require('../utils/passwordUtils');
 const { sendWhatsAppTemplate } = require('../services/whatsappService');
-const { sendBrevoEmail } = require('../config/brevo');
+const { sendWelcomeEmail } = require('../services/emailService');
+const { isValidVerificationToken } = require('../services/otpService');
+const { trialEndDate: getTrialEndDate } = require('../config/trial');
 
 const signupUser = async (req, res) => {
   console.log('[signup] ── SIGNUP ATTEMPT ───────────────────────────');
-  const { name, email, phone, password, country, businessName, category } = req.body || {};
+  const { name, email, phone, password, country, businessName, category, emailVerificationToken } = req.body || {};
 
   // ── Validation ──────────────────────────────────────────────
   const errors = {};
@@ -55,6 +57,22 @@ const signupUser = async (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
   console.log(`[signup] email: ${normalizedEmail}`);
+
+  // ── Email verification ──────────────────────────────────────
+  // Current apps send the token from /verify-email-otp. Older app versions
+  // checked the code on the device and send no token; they're allowed until
+  // REQUIRE_EMAIL_VERIFICATION=true, but their accounts stay unverified.
+  let emailVerified = false;
+  if (emailVerificationToken) {
+    if (!isValidVerificationToken(emailVerificationToken, normalizedEmail)) {
+      return res.status(400).json({ success: false, error: 'Email verification has expired. Please verify your email again.' });
+    }
+    emailVerified = true;
+  } else if (process.env.REQUIRE_EMAIL_VERIFICATION === 'true') {
+    return res.status(400).json({ success: false, error: 'Please verify your email before signing up.' });
+  } else {
+    console.warn(`[signup] legacy client — no email verification token for ${normalizedEmail}`);
+  }
 
   try {
     // ── Step 1: Check duplicates ──────────────────────────────
@@ -94,7 +112,7 @@ const signupUser = async (req, res) => {
     }
 
     const now          = new Date().toISOString();
-    const trialEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const trialEndDate = getTrialEndDate();
 
     // ── Step 5: Create AuthUser ───────────────────────────────
     console.log('[signup] Step 5: creating AuthUser');
@@ -104,7 +122,7 @@ const signupUser = async (req, res) => {
       provider:      'email',
       bcryptHash,
       displayName:   name.trim(),
-      emailVerified: false,
+      emailVerified,
       disabled:      false,
     }).save();
     console.log('[signup] AuthUser saved ✅');
@@ -179,46 +197,7 @@ const signupUser = async (req, res) => {
     }
 
     // ── Step 9: Welcome email via Brevo (non-blocking) ───────
-    sendBrevoEmail({
-      to:      normalizedEmail,
-      subject: `Welcome to FashionTally, ${name.trim().split(' ')[0]}! 🎉`,
-      html: `
-        <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
-          <div style="background: #16988d; padding: 32px 40px; text-align: center;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">FashionTally</h1>
-          </div>
-          <div style="padding: 40px;">
-            <h2 style="color: #111827; font-size: 20px; margin: 0 0 12px 0;">Welcome, ${name.trim()}! 👋</h2>
-            <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
-              Your FashionTally account is ready. You're on a <strong>7-day free trial</strong> — explore everything the platform has to offer.
-            </p>
-            <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
-              Here's what you can do right away:
-            </p>
-            <ul style="color: #374151; font-size: 15px; line-height: 2; padding-left: 20px; margin: 0 0 24px 0;">
-              <li>Add your clients and track their measurements</li>
-              <li>Create and manage orders</li>
-              <li>Send invoices and track payments</li>
-              <li>Schedule appointments</li>
-              <li>Manage your inventory</li>
-            </ul>
-            <div style="text-align: center; margin: 32px 0;">
-              <a href="https://app.fashiontally.com" style="background: #16988d; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; display: inline-block;">
-                Get Started
-              </a>
-            </div>
-            <p style="color: #9ca3af; font-size: 13px; line-height: 1.6; margin: 0;">
-              If you have any questions, reply to this email — we're happy to help.
-            </p>
-          </div>
-          <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
-          </div>
-        </div>
-      `,
-    })
-    .then(() => console.log('[signup] Welcome email sent ✅'))
-    .catch(e => console.error('[signup] Welcome email error:', e.message));
+    sendWelcomeEmail(normalizedEmail, name);
 
   } catch (error) {
     console.error('[signup] Error:', error.message, error.stack);

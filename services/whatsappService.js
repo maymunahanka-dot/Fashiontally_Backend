@@ -83,21 +83,13 @@ const sendWhatsAppTemplate = async (to, variables = {}) => {
 };
 
 /**
- * Generate a random numeric OTP
- * @param {number} length - number of digits (default 6)
- * @returns {string}
- */
-const generateOTP = (length = 6) => {
-  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
-};
-
-/**
  * Send OTP via WhatsApp using the verifications_2fa_template
  * The template expects {{1}} = the OTP code
  * @param {string} to - recipient phone number
- * @returns {Promise<{success: boolean, otp?: string, sid?: string, error?: string}>}
+ * @param {string} otp - the code issued by otpService
+ * @returns {Promise<{success: boolean, sid?: string, error?: string}>}
  */
-const sendWhatsAppOTP = async (to) => {
+const sendWhatsAppOTP = async (to, otp) => {
   if (!ACCOUNT_SID || !AUTH_TOKEN || !FROM || !OTP_TEMPLATE_SID) {
     const err = 'WhatsApp OTP not configured. Add TWILIO_OTP_TEMPLATE_SID to .env';
     console.warn(err);
@@ -109,7 +101,6 @@ const sendWhatsAppOTP = async (to) => {
     return { success: false, error: `Invalid phone number: ${to}` };
   }
 
-  const otp = generateOTP(6);
   const toFormatted = `whatsapp:${normalized}`;
   const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64');
 
@@ -142,8 +133,8 @@ const sendWhatsAppOTP = async (to) => {
       return { success: false, error: reason };
     }
 
-    console.log('✅ WhatsApp OTP sent:', data.sid, 'OTP:', otp);
-    return { success: true, otp, sid: data.sid };
+    console.log('✅ WhatsApp OTP sent:', data.sid);
+    return { success: true, sid: data.sid };
   } catch (error) {
     console.error('❌ WhatsApp OTP error:', error);
     return { success: false, error: error.message };
@@ -153,5 +144,4 @@ const sendWhatsAppOTP = async (to) => {
 module.exports = {
   sendWhatsAppTemplate,
   sendWhatsAppOTP,
-  generateOTP,
 };

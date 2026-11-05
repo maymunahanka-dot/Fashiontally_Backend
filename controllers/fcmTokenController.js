@@ -19,6 +19,8 @@ const saveFcmToken = async (req, res) => {
     }
 
     const email = req.effectiveEmail;
+    // Team members' devices live on the owner's account; remember who actually signed in
+    const signedInAs = String(req.user?.email || email).toLowerCase();
     const cleanToken = token.trim();
     const cleanPlatform = platform || 'web';
     const cleanDevice = typeof deviceName === 'string' ? deviceName.trim() : '';
@@ -53,6 +55,7 @@ const saveFcmToken = async (req, res) => {
               deviceName: cleanDevice,
               addedAt:    keep?.addedAt || new Date().toISOString(),
               enabled:    keep?.enabled !== false,
+              signedInAs,
             }
           }
         }
@@ -72,6 +75,7 @@ const saveFcmToken = async (req, res) => {
             deviceName: cleanDevice,
             addedAt:    new Date().toISOString(),
             enabled:    true,
+            signedInAs,
           }
         }
       }

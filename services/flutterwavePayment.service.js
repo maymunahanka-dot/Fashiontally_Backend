@@ -1,11 +1,76 @@
 const Payment = require('../models/Payment');
 const User = require('../models/User');
-const { sendSubscriptionReceipt } = require('./emailService');
+const { sendSubscriptionReceipt, sendPaymentFailedEmail } = require('./emailService');
+const { sendOnce } = require('./notificationOnce');
+const { sendNotification } = require('./notification.service');
+
+/** "Payment successful" push to the account owner's devices. Never throws. */
+const pushPaymentSuccess = (user, payment = {}) => {
+  if (!user?._id) return;
+  const plan = payment.plantype || payment.planType || user.planType || 'FashionTally';
+  const end = user.subscriptionEndDate ? new Date(user.subscriptionEndDate) : null;
+  const until = end && end > new Date()
+    ? ` until ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+    : '';
+  sendNotification(
+    String(user._id),
+    '✅ Payment successful',
+    `Your ${plan} plan is active${until}. Thank you!`,
+    { type: 'payment_success' },
+    { audience: 'owner' },
+  ).catch(() => {});
+};
 
 const PLAN_PRICES = {
   STARTER: 5000,
   GROWTH: 10000,
   PROFESSIONAL: 15000,
+};
+
+// Yearly = 10 months' price (same as the web app's config/subscriptionPricing.js)
+const YEARLY_PLAN_PRICES = {
+  STARTER: 50000,
+  GROWTH: 100000,
+  PROFESSIONAL: 150000,
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Monthly or yearly is decided by what was actually paid, never by what the
+ * browser says: paying at least the plan's yearly price gives 365 days.
+ */
+const billingFor = (plan, amount) =>
+  Number(amount) >= (YEARLY_PLAN_PRICES[plan] || Infinity)
+    ? { billingCycle: 'yearly', days: 365 }
+    : { billingCycle: 'monthly', days: 30 };
+
+/**
+ * New end date for a payment. Renewing a paid plan early keeps the days already
+ * paid for: the new period starts when the current one ends. Trials and expired
+ * plans start from the payment date (paying ends a free trial).
+ */
+const newSubscriptionEnd = (user, paidAt, days) => {
+  const paidAtMs = new Date(paidAt).getTime();
+  const currentEnd = user?.subscriptionEndDate ? new Date(user.subscriptionEndDate).getTime() : NaN;
+  const start = user?.subscriptionType === 'paid' && currentEnd > paidAtMs ? currentEnd : paidAtMs;
+  return new Date(start + days * DAY_MS).toISOString();
+};
+
+/**
+ * The plan the amount actually paid covers. The requested plan comes from the
+ * browser, so it's only honoured if enough was paid; otherwise the best plan the
+ * money covers is used. Throws if it doesn't cover even the cheapest plan.
+ */
+const planCoveredBy = (requestedPlan, amount) => {
+  const paid = Number(amount) || 0;
+  if (paid >= (PLAN_PRICES[requestedPlan] || Infinity)) return requestedPlan;
+  const covered = ['PROFESSIONAL', 'GROWTH', 'STARTER'].find((p) => paid >= PLAN_PRICES[p]);
+  if (!covered) {
+    throw new Error(`Amount paid (₦${paid}) is below the cheapest plan (₦${PLAN_PRICES.STARTER}) — not activated`);
+  }
+  console.warn(`[payment] ₦${paid} doesn't cover ${requestedPlan} (₦${PLAN_PRICES[requestedPlan]}) — activating ${covered} instead`);
+  return covered;
 };
 
 const normalizePlan = (value) => {
@@ -16,6 +81,9 @@ const normalizePlan = (value) => {
 
 const planFromAmount = (amount) => {
   const value = Number(amount) || 0;
+  if (value >= YEARLY_PLAN_PRICES.PROFESSIONAL) return 'PROFESSIONAL';
+  if (value >= YEARLY_PLAN_PRICES.GROWTH) return 'GROWTH';
+  if (value >= YEARLY_PLAN_PRICES.STARTER) return 'STARTER';
   if (value >= PLAN_PRICES.PROFESSIONAL) return 'PROFESSIONAL';
   if (value >= PLAN_PRICES.GROWTH) return 'GROWTH';
   if (value >= PLAN_PRICES.STARTER) return 'STARTER';
@@ -133,11 +201,13 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
 
   const parsed = parseTxRef(tx.tx_ref);
   const meta = tx.meta || {};
-  const plan =
+  const requestedPlan =
     normalizePlan(options.planType) ||
     normalizePlan(meta.plantype || meta.planType || meta.plan) ||
     parsed.plan ||
     planFromAmount(tx.amount);
+  // tx.amount is what Flutterwave confirms was received
+  const plan = planCoveredBy(requestedPlan, tx.amount);
 
   // Public verify must map from Flutterwave customer / tx_ref only.
   // Admin recover may pass emailOverride when the payer email differs from the account.
@@ -158,9 +228,8 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
   }
 
   const paidAt = tx.created_at || new Date().toISOString();
-  const subscriptionEndDate = new Date(
-    new Date(paidAt).getTime() + 30 * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const { billingCycle, days } = billingFor(plan, tx.amount);
+  const subscriptionEndDate = newSubscriptionEnd(user, paidAt, days);
   const planPrice = Number(tx.amount) || PLAN_PRICES[plan] || 0;
 
   const payment = new Payment({
@@ -171,6 +240,7 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
     phone: tx.customer?.phone_number || user.phone || '',
     plantype: plan,
     planPrice,
+    billingCycle,
     status: 'successful',
     gateway: 'flutterwave',
     transactionId: tx.tx_ref || '',
@@ -218,6 +288,7 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
   );
 
   sendSubscriptionReceipt(user.email, payment.toObject(), updatedUser || user).catch(() => {});
+  pushPaymentSuccess(updatedUser || user, payment);
 
   return {
     alreadyProcessed: false,
@@ -260,108 +331,6 @@ const verifyAndActivate = async ({
   });
 };
 
-/**
- * Activate from the browser callback when Flutterwave redirected with status=successful.
- * Used when the secret key is not set (local test) or as the callback path the product wants.
- */
-const activateFromCallbackRedirect = async ({
-  email,
-  transactionId,
-  txRef,
-  planType,
-  amount,
-  name,
-  phone,
-}) => {
-  if (!transactionId && !txRef) throw new Error('transactionId or tx_ref is required');
-
-  const providerTransactionId = String(transactionId || txRef);
-  const existing = await Payment.findOne({
-    $or: [
-      { providerTransactionId },
-      ...(txRef ? [{ transactionId: String(txRef) }] : []),
-    ],
-  });
-  if (existing) {
-    const user = await User.findOne({ email: existing.email });
-    return {
-      alreadyProcessed: true,
-      payment: existing,
-      user,
-      message: 'Payment was already activated',
-    };
-  }
-
-  const parsed = parseTxRef(txRef);
-  // Resolve account from login email, or from tx_ref user key (uid/email)
-  const user = await findUserForPayment({
-    userKey: parsed.userKey,
-    email: email || '',
-  });
-  if (!user) {
-    throw new Error(
-      `No FashionTally user found for callback (email: ${email || 'n/a'}, tx_ref: ${txRef || 'n/a'})`
-    );
-  }
-
-  const plan =
-    normalizePlan(planType) ||
-    parsed.plan ||
-    planFromAmount(amount) ||
-    'GROWTH';
-  const planPrice = Number(amount) > 0 ? Number(amount) : PLAN_PRICES[plan] || 0;
-  const paidAt = new Date().toISOString();
-  const subscriptionEndDate = new Date(
-    Date.now() + 30 * 24 * 60 * 60 * 1000
-  ).toISOString();
-
-  const payment = new Payment({
-    id: `PAY-${providerTransactionId}`,
-    userId: user.uid || user.id || '',
-    email: user.email,
-    name: name || user.name || '',
-    phone: phone || user.phone || '',
-    plantype: plan,
-    planPrice,
-    status: 'successful',
-    gateway: 'flutterwave',
-    transactionId: txRef || '',
-    providerTransactionId,
-    paidAt,
-    createdAt: paidAt,
-    updatedAt: paidAt,
-  });
-  await payment.save();
-
-  const updatedUser = await User.findOneAndUpdate(
-    { email: user.email },
-    {
-      $set: {
-        isSubscribed: true,
-        subscriptionType: 'paid',
-        planType: plan,
-        subscriptionEndDate,
-        isTrialActive: false,
-        payment_amount: planPrice,
-        payment_date: paidAt,
-        txRef: txRef || '',
-        transactionId: providerTransactionId,
-        updatedAt: paidAt,
-      },
-    },
-    { new: true }
-  );
-
-  sendSubscriptionReceipt(user.email, payment.toObject(), updatedUser || user).catch(() => {});
-
-  return {
-    alreadyProcessed: false,
-    payment,
-    user: updatedUser || user,
-    message: 'Subscription activated',
-  };
-};
-
 /** Used by the callback page to wait for webhook activation if verify was cut off. */
 const getActivationStatus = async ({ transactionId, txRef }) => {
   const query = [];
@@ -380,14 +349,42 @@ const getActivationStatus = async ({ transactionId, txRef }) => {
   };
 };
 
+/**
+ * Emails the customer once per transaction when a payment fails or is cancelled,
+ * whether we hear about it from the webhook or the browser callback.
+ */
+const notifyPaymentFailed = async ({ email, txRef, transactionId, planType, amount, status }) => {
+  const key = txRef || transactionId;
+  if (!key) return;
+  try {
+    const { userKey, plan } = parseTxRef(txRef);
+    const user = await findUserForPayment({ userKey, email });
+    const to = user?.email || email;
+    if (!to) return;
+    await sendOnce({ email: to, kind: 'payment_failed', key }, () =>
+      sendPaymentFailedEmail(to, {
+        name: user?.name,
+        planType: planType || plan || user?.planType,
+        amount,
+        status,
+      }));
+  } catch (error) {
+    console.error('[payment-failed-email]', error.message);
+  }
+};
+
 module.exports = {
   PLAN_PRICES,
+  YEARLY_PLAN_PRICES,
+  billingFor,
+  planCoveredBy,
+  notifyPaymentFailed,
+  pushPaymentSuccess,
   getWebhookHash,
   hasSecretKey,
   parseTxRef,
   verifyFlutterwaveTransaction,
   activateFromVerifiedTransaction,
   verifyAndActivate,
-  activateFromCallbackRedirect,
   getActivationStatus,
 };

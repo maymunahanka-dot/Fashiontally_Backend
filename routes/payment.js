@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const {
-  createPayment,
   deletePayment,
   editPayment,
   getPayment,
@@ -12,7 +11,8 @@ const {
 } = require('../controllers/paymentController');
 const { verifyToken, optionalVerifyToken } = require('../middleware/auth');
 
-router.post('/create', verifyToken, createPayment);
+// No /create: payments are only recorded after Flutterwave confirms them
+// (verify / webhook below), so nobody can add a fake payment or receipt.
 router.delete('/delete/:id', verifyToken, deletePayment);
 router.put('/edit/:id', verifyToken, editPayment);
 router.get('/get/:id', verifyToken, getPayment);

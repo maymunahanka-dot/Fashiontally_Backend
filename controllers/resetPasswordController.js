@@ -11,6 +11,8 @@
 
 const AuthUser = require('../models/AuthUser');
 const { hashPassword } = require('../utils/passwordUtils');
+const { sendPasswordChangedEmail } = require('../services/emailService');
+const { notifyPerson } = require('../services/notification.service');
 
 // ── Shared HTML shell ─────────────────────────────────────────
 const htmlShell = (title, bodyContent) => `
@@ -221,6 +223,8 @@ const resetPassword = async (req, res) => {
     await authUser.save();
 
     console.log(`[resetPassword] Password reset for: ${authUser.email} ✅`);
+    sendPasswordChangedEmail(authUser.email, authUser.displayName);
+    notifyPerson(authUser.email, '🔐 Password changed', "Your FashionTally password was just reset. If this wasn't you, reset it again and contact support.", { type: 'password_changed' });
 
     if (isJson) {
       return res.json({ success: true, message: 'Password has been reset successfully. You can now log in.' });

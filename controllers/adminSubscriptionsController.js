@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const { sendSubscriptionCancelledEmail } = require('../services/emailService');
+const { sendNotification } = require('../services/notification.service');
 
 // GET all users with subscription data
 const getSubscriptions = async (req, res) => {
@@ -79,7 +81,8 @@ const cancelSubscription = async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, error: 'email is required' });
 
-    const updated = await User.findOneAndUpdate(
+    // Returns the document as it was before the update, so the email can name the cancelled plan
+    const previous = await User.findOneAndUpdate(
       { email: email.toLowerCase() },
       {
         $set: {
@@ -91,11 +94,19 @@ const cancelSubscription = async (req, res) => {
           updatedAt: new Date().toISOString(),
         },
       },
-      { new: true }
+      { new: false }
     );
 
-    if (!updated) return res.status(404).json({ success: false, error: 'User not found' });
-    res.json({ success: true, message: `Subscription cancelled for ${updated.name}` });
+    if (!previous) return res.status(404).json({ success: false, error: 'User not found' });
+    res.json({ success: true, message: `Subscription cancelled for ${previous.name}` });
+    sendSubscriptionCancelledEmail(previous.email, { name: previous.name, planType: previous.planType, byAdmin: true });
+    sendNotification(
+      String(previous._id),
+      'Subscription cancelled',
+      `Your ${previous.planType || 'FashionTally'} subscription was cancelled by our team. Contact support if this is a mistake.`,
+      { type: 'subscription_cancelled' },
+      { audience: 'owner' },
+    ).catch(() => {});
   } catch (error) {
     console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });

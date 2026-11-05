@@ -5,7 +5,8 @@
  *   1. Creates AuthUser in MongoDB (bcrypt) for new web login
  *   2. Creates Firebase Auth user so old mobile app can log in
  *   3. Saves SubAdmin doc in MongoDB
- *   4. Firestore doc is created via the firebaseSync middleware automatically
+ *   4. Emails the member an invite link to set their own password
+ *   5. Firestore doc is created via the firebaseSync middleware automatically
  *
  * Firebase → MongoDB sync is handled by syncScheduler (fashiontally_admins listener)
  */
@@ -13,7 +14,13 @@
 const crypto = require('crypto');
 const SubAdmin = require('../models/SubAdmin');
 const AuthUser = require('../models/AuthUser');
+const User = require('../models/User');
 const { hashPassword } = require('../utils/passwordUtils');
+const { generateToken, tokenExpiry } = require('../utils/tokenUtils');
+const { sendTeamInviteEmail } = require('../services/emailService');
+const { notifyByEmail } = require('../services/notification.service');
+
+const INVITE_EXPIRY_DAYS = 7;
 const admin = require('../firebase/firebase-admin');
 
 const createSubAdmin = async (req, res) => {
@@ -46,9 +53,9 @@ const createSubAdmin = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email already in use' });
     }
 
-    // Generate password: firstName + "123456"
-    const firstName = name.split(' ')[0].toLowerCase();
-    const password  = `${firstName}123456`;
+    // Random starting password. The member normally sets their own via the
+    // invite email; it's still returned so older app versions can show it.
+    const password = crypto.randomBytes(9).toString('base64url');
 
     // ── Step 1: Create AuthUser in MongoDB (bcrypt) for new web login ──
     console.log(`[subAdmin] Creating AuthUser in MongoDB: ${normalizedEmail}`);
@@ -81,14 +88,18 @@ const createSubAdmin = async (req, res) => {
       }
     }
 
+    // Invite link reuses the password-reset token and page
+    const inviteToken = generateToken();
     await new AuthUser({
-      email:         normalizedEmail,
+      email:            normalizedEmail,
       firebaseUid,
-      provider:      'email',
+      provider:         'email',
       bcryptHash,
-      displayName:   name.trim(),
-      emailVerified: false,
-      disabled:      false,
+      displayName:      name.trim(),
+      emailVerified:    false,
+      disabled:         false,
+      resetToken:       inviteToken,
+      resetTokenExpiry: tokenExpiry(INVITE_EXPIRY_DAYS * 24 * 60),
     }).save();
     console.log('[subAdmin] AuthUser saved ✅');
 
@@ -108,6 +119,18 @@ const createSubAdmin = async (req, res) => {
     await subAdmin.save();
     console.log('[subAdmin] SubAdmin saved ✅');
 
+    // ── Step 4: Invite email (non-blocking) ──
+    const owner = await User.findOne({ email: ownerEmail }).select('name businessName').lean().catch(() => null);
+    const backendBase = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+    sendTeamInviteEmail(normalizedEmail, {
+      name:           name.trim(),
+      inviterName:    owner?.businessName || owner?.name || ownerEmail,
+      setPasswordUrl: `${backendBase}/api/auth/reset-password?token=${inviteToken}`,
+      expiresDays:    INVITE_EXPIRY_DAYS,
+    });
+    notifyByEmail(ownerEmail, '👥 Team member added', `${name.trim()} (${normalizedEmail}) was added to your team.`,
+      { type: 'team_member_added' }, { audience: 'owner' });
+
     // firebaseSync middleware will push this to Firestore automatically
     res.status(201).json({
       success:  true,
@@ -124,6 +147,40 @@ const createSubAdmin = async (req, res) => {
   }
 };
 
+/**
+ * Removes a team member from an owner's team: their SubAdmin record, their login,
+ * their Firebase user and their devices on the owner's account. The owner's own
+ * account and data are untouched.
+ *
+ * @param {object} [options]
+ * @param {string} [options.notice] - push text for the owner
+ * @returns {Promise<object|null>} the removed SubAdmin, or null if not on this owner's team
+ */
+const removeTeamMember = async (memberEmail, ownerEmail, { notice } = {}) => {
+  const normalizedEmail = String(memberEmail).toLowerCase();
+  const deleted = await SubAdmin.findOneAndDelete({ email: normalizedEmail, invitedBy: ownerEmail });
+  if (!deleted) return null;
+
+  // Also delete their AuthUser record
+  await AuthUser.deleteOne({ email: normalizedEmail }).catch(() => {});
+
+  // Their phones are registered on the owner's account — stop sending them pushes
+  await User.updateOne({ email: ownerEmail }, { $pull: { fcmTokens: { signedInAs: normalizedEmail } } }).catch(() => {});
+  notifyByEmail(ownerEmail, '👥 Team member removed',
+    notice || `${deleted.name || normalizedEmail} was removed from your team.`,
+    { type: 'team_member_removed' }, { audience: 'owner' });
+
+  // Also delete from Firebase Auth if they have a firebaseUid
+  if (deleted.uid) {
+    admin.auth().deleteUser(deleted.uid).catch(err => {
+      console.warn(`[subAdmin] Firebase Auth delete failed (non-fatal): ${err.message}`);
+    });
+  }
+
+  // firebaseSync middleware will push the delete to Firestore automatically
+  return deleted;
+};
+
 const deleteSubAdmin = async (req, res) => {
   try {
     const { email } = req.body;
@@ -131,25 +188,11 @@ const deleteSubAdmin = async (req, res) => {
       return res.status(400).json({ success: false, error: 'SubAdmin email is required' });
     }
 
-    const normalizedEmail = email.toLowerCase();
-    const ownerEmail      = req.effectiveEmail;
-
-    const deleted = await SubAdmin.findOneAndDelete({ email: normalizedEmail, invitedBy: ownerEmail });
+    const deleted = await removeTeamMember(email, req.effectiveEmail);
     if (!deleted) {
       return res.status(404).json({ success: false, error: 'SubAdmin not found or not authorized' });
     }
 
-    // Also delete their AuthUser record
-    await AuthUser.deleteOne({ email: normalizedEmail }).catch(() => {});
-
-    // Also delete from Firebase Auth if they have a firebaseUid
-    if (deleted.uid) {
-      admin.auth().deleteUser(deleted.uid).catch(err => {
-        console.warn(`[subAdmin] Firebase Auth delete failed (non-fatal): ${err.message}`);
-      });
-    }
-
-    // firebaseSync middleware will push the delete to Firestore automatically
     res.json({ success: true, message: 'SubAdmin deleted successfully', data: deleted });
   } catch (error) {
     console.error('❌ Error:', error);
@@ -200,5 +243,5 @@ const getSubAdmin = async (req, res) => {
   }
 };
 
-module.exports = { createSubAdmin, deleteSubAdmin, editSubAdmin, getSubAdmin };
+module.exports = { createSubAdmin, deleteSubAdmin, editSubAdmin, getSubAdmin, removeTeamMember };
 

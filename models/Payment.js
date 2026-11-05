@@ -8,6 +8,7 @@ const paymentSchema = new mongoose.Schema({
     phone: { type: String, default: '' },
     plantype: { type: String, default: '' },
     planPrice: { type: Number, default: 0 },
+    billingCycle: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
     status: { type: String, default: '' },
     gateway: { type: String, default: '' },
     paymentLink: { type: String, default: '' },

@@ -18,6 +18,12 @@ const userSchema = new mongoose.Schema({
   businessName:       { type: String, default: '' },
   businessCategory:   { type: String, default: '' },
   logoUrl:            { type: String, default: '' },
+  // Set from the mobile app's Edit Profile screen
+  displayName:        { type: String },
+  phoneNumber:        { type: String },
+  bio:                { type: String, default: '' },
+  photoURL:           { type: String, default: '' },
+  updatedAt:          { type: String },
   subscriptionType:   { type: String, default: 'trial' },
   isTrialActive:      { type: Boolean, default: true },
   planType:           { type: String, default: 'Growth' },
@@ -37,6 +43,9 @@ const userSchema = new mongoose.Schema({
       deviceName: { type: String, default: '' },       // e.g. "iPhone 14", "Chrome / Windows"
       addedAt:    { type: String, default: () => new Date().toISOString() },
       enabled:    { type: Boolean, default: true },    // per-device notification switch
+      // Who is signed in on this device: the owner, or a team member whose
+      // devices are stored on the owner's account. '' = registered before this was tracked.
+      signedInAs: { type: String, default: '' },
     }
   ],
 });

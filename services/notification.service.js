@@ -4,7 +4,52 @@ const admin = require('../firebase/firebase-admin');
 const User  = require('../models/User');
 const { sendApns } = require('./apns.service');
 
-const sendNotification = async (userId, title, body, data = {}) => {
+/**
+ * Web page each notification type opens when clicked (the mobile app maps
+ * `type` to its own screens). Sent as `data.url`.
+ */
+const WEB_PATHS = {
+  login:                  '/dashboard/settings',
+  password_changed:       '/dashboard/settings',
+  team_member_added:      '/dashboard/settings',
+  team_member_removed:    '/dashboard/settings',
+  support_ticket:         '/dashboard/settings',
+  payment_success:        '/subscription',
+  subscription_cancelled: '/subscription',
+  plan_ending:            '/subscription',
+  plan_expired:           '/subscription',
+  low_stock:              '/dashboard/inventory',
+  appointments:           '/dashboard/appointments',
+  appointment_soon:       '/dashboard/appointments',
+  pending_orders:         '/dashboard/orders',
+  order_due:              '/dashboard/orders',
+  order_overdue:          '/dashboard/orders',
+  invoice_overdue:        '/dashboard/invoice',
+};
+
+/**
+ * Which of the account's devices a notification goes to:
+ *   'everyone' — owner and team members (business alerts: orders, stock, ...)
+ *   'owner'    — only the account owner (billing, security, team changes)
+ *   { email }  — only devices signed in as that person
+ * Devices registered before sign-ins were tracked (signedInAs '') count as the owner's.
+ */
+const devicesFor = (user, audience) => {
+  const enabled = (user.fcmTokens || []).filter((d) => d.enabled === true && d.token);
+  if (!audience || audience === 'everyone') return enabled;
+  const who = audience === 'owner' ? user.email : String(audience.email || '').toLowerCase();
+  return enabled.filter((d) => {
+    const signedInAs = String(d.signedInAs || '').toLowerCase();
+    return signedInAs === who || (!signedInAs && who === String(user.email).toLowerCase());
+  });
+};
+
+/**
+ * @param {string} userId - owner's User _id
+ * @param {object} [options]
+ * @param {'everyone'|'owner'|{email: string}} [options.audience='everyone']
+ */
+const sendNotification = async (userId, title, body, data = {}, { audience = 'everyone' } = {}) => {
   try {
     // ── 1. Fetch user and their device tokens ───────────────
     const user = await User.findById(userId).select('fcmTokens email name');
@@ -19,16 +64,17 @@ const sendNotification = async (userId, title, body, data = {}) => {
       return;
     }
 
-    // ── 2. Filter — only send to devices where enabled === true ─
-    const enabledTokens = user.fcmTokens.filter(d => d.enabled === true && d.token);
+    // ── 2. Filter — enabled devices that belong to the audience ─
+    const enabledTokens = devicesFor(user, audience);
 
     if (enabledTokens.length === 0) {
-      console.log(`[notification] All devices disabled for: ${user.email} — skipping`);
+      console.log(`[notification] No enabled devices for ${user.email} (audience: ${JSON.stringify(audience)}) — skipping`);
       return;
     }
 
+    const webPath = WEB_PATHS[data.type];
     const dataPayload = Object.fromEntries(
-      Object.entries(data).map(([k, v]) => [k, String(v)])
+      Object.entries({ ...(webPath && { url: webPath }), ...data }).map(([k, v]) => [k, String(v)])
     );
     const result = await deliverPush(enabledTokens, title, body, dataPayload);
     console.log(`[notification] Sent to ${user.email} — success: ${result.delivered}, failed: ${result.failed}`);
@@ -104,4 +150,30 @@ const sendNotificationToMany = async (userIds, title, body, data = {}) => {
   await Promise.all(userIds.map(id => sendNotification(id, title, body, data)));
 };
 
-module.exports = { sendNotification, sendNotificationToMany, deliverPush };
+/** Same as sendNotification, but finds the account by the owner's email. Never throws. */
+const notifyByEmail = async (ownerEmail, title, body, data = {}, options = {}) => {
+  try {
+    const user = await User.findOne({ email: String(ownerEmail || '').toLowerCase() }).select('_id').lean();
+    if (user) await sendNotification(String(user._id), title, body, data, options);
+  } catch (error) {
+    console.error(`[notification] notifyByEmail failed for ${ownerEmail}:`, error.message);
+  }
+};
+
+/**
+ * Push to one person's own devices, whether they're an account owner or a team
+ * member (whose devices are stored on the owner's account). Never throws.
+ */
+const notifyPerson = async (personEmail, title, body, data = {}) => {
+  try {
+    const email = String(personEmail || '').toLowerCase();
+    const SubAdmin = require('../models/SubAdmin');
+    const subAdmin = await SubAdmin.findOne({ email }).select('invitedBy').lean();
+    const ownerEmail = subAdmin?.invitedBy || email;
+    await notifyByEmail(ownerEmail, title, body, data, { audience: { email } });
+  } catch (error) {
+    console.error(`[notification] notifyPerson failed for ${personEmail}:`, error.message);
+  }
+};
+
+module.exports = { sendNotification, sendNotificationToMany, notifyByEmail, notifyPerson, deliverPush, devicesFor };

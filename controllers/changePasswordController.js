@@ -14,6 +14,8 @@
 
 const AuthUser = require('../models/AuthUser');
 const { verifyPassword, hashPassword } = require('../utils/passwordUtils');
+const { sendPasswordChangedEmail } = require('../services/emailService');
+const { notifyPerson } = require('../services/notification.service');
 
 const changePassword = async (req, res) => {
   console.log('[changePassword] ── CHANGE PASSWORD ───────────────────');
@@ -64,6 +66,8 @@ const changePassword = async (req, res) => {
 
     console.log(`[changePassword] Password changed for: ${email} ✅`);
     res.json({ success: true, message: 'Password updated successfully' });
+    sendPasswordChangedEmail(authUser.email, authUser.displayName);
+    notifyPerson(authUser.email, '🔐 Password changed', "Your FashionTally password was just changed. If this wasn't you, reset it right away.", { type: 'password_changed' });
 
   } catch (error) {
     console.error('[changePassword] Error:', error.message, error.stack);

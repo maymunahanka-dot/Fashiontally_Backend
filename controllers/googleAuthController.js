@@ -29,6 +29,8 @@ const crypto = require('crypto');
 const User = require('../models/User');
 const AuthUser = require('../models/AuthUser');
 const BrandSetting = require('../models/BrandSetting');
+const { sendWelcomeEmail } = require('../services/emailService');
+const { trialEndDate: getTrialEndDate } = require('../config/trial');
 
 const oauthClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -118,7 +120,7 @@ const googleAuth = async (req, res) => {
     console.log(`[googleAuth] Verified — email: ${normalizedEmail}, googleUid: ${googleUid}`);
 
     const now          = new Date().toISOString();
-    const trialEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const trialEndDate = getTrialEndDate();
 
     // ── Upsert AuthUser ────────────────────────────────────────
     console.log('[googleAuth] Upserting AuthUser');
@@ -190,6 +192,9 @@ const googleAuth = async (req, res) => {
       } catch (e) {
         console.error('[googleAuth] BrandSetting failed (non-fatal):', e.message);
       }
+
+      // Same welcome email as email/password signup (non-blocking)
+      sendWelcomeEmail(normalizedEmail, userName);
     }
 
     // ── Sign JWT ───────────────────────────────────────────────

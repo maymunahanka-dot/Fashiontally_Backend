@@ -34,6 +34,14 @@ require('./firebase/firebase-admin');
 const { startDailyNotificationScheduler } = require('./services/dailyNotifications.service');
 startDailyNotificationScheduler();
 
+// ── Trial / plan ending reminder emails ──────────────────────
+const { startBillingReminderScheduler } = require('./services/billingReminders.service');
+startBillingReminderScheduler();
+
+// ── "Appointment starting soon" pushes ───────────────────────
+const { startAppointmentReminderScheduler } = require('./services/appointmentReminders.service');
+startAppointmentReminderScheduler();
+
 // ── Firebase ↔ MongoDB two-way sync ──────────────────────────
 const { startSyncScheduler } = require('./services/syncScheduler.service');
 
@@ -86,7 +94,6 @@ const customerServiceAuthRoutes     = require('./routes/customerServiceAuth');
 const fcmTokenRoutes                 = require('./routes/fcmToken');
 const adminNotificationRoutes        = require('./routes/adminNotification');
 const emailBlastRoutes               = require('./routes/emailBlast');
-const paymentCorRoutes               = require('./routes/paymentCor');
 
 app.use('/api/auth', signupRoutes);
 app.use('/api/auth', loginRoutes);
@@ -131,7 +138,6 @@ app.use('/api/cs-auth', customerServiceAuthRoutes);
 app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
 app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
 app.use('/api/email-blast', emailBlastRoutes);               // GET /users  POST /send
-app.use('/api/payment-cor', paymentCorRoutes);               // POST /initialize
 
 // ── Sync control & monitoring ─────────────────────────────
 const syncControlRoutes = require('./routes/syncControl');

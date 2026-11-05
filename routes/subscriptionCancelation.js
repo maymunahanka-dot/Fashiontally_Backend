@@ -7,6 +7,10 @@ const {
   getSubscriptionCancelation, 
   getSubscriptionCancelationByEmail 
 } = require('../controllers/subscriptionCancelationController');
+const { verifyToken } = require('../middleware/auth');
+
+// Every route needs a signed-in user and only touches that user's account
+router.use(verifyToken);
 
 router.post('/create', createSubscriptionCancelation);
 router.delete('/delete/:id', deleteSubscriptionCancelation);
