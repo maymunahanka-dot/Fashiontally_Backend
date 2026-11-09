@@ -58,6 +58,17 @@ const newSubscriptionEnd = (user, paidAt, days) => {
 };
 
 /**
+ * Start of the paid period shown to the user. An early renewal extends the
+ * current period, so it keeps that period's start; otherwise it's the payment date.
+ */
+const newSubscriptionStart = (user, paidAt) => {
+  const paidAtMs = new Date(paidAt).getTime();
+  const currentEnd = user?.subscriptionEndDate ? new Date(user.subscriptionEndDate).getTime() : NaN;
+  const renewingEarly = user?.subscriptionType === 'paid' && currentEnd > paidAtMs;
+  return renewingEarly ? user.subscriptionStartDate || user.payment_date || paidAt : paidAt;
+};
+
+/**
  * The plan the amount actually paid covers. The requested plan comes from the
  * browser, so it's only honoured if enough was paid; otherwise the best plan the
  * money covers is used. Throws if it doesn't cover even the cheapest plan.
@@ -230,6 +241,7 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
   const paidAt = tx.created_at || new Date().toISOString();
   const { billingCycle, days } = billingFor(plan, tx.amount);
   const subscriptionEndDate = newSubscriptionEnd(user, paidAt, days);
+  const subscriptionStartDate = newSubscriptionStart(user, paidAt);
   const planPrice = Number(tx.amount) || PLAN_PRICES[plan] || 0;
 
   const payment = new Payment({
@@ -276,6 +288,8 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
         subscriptionType: 'paid',
         planType: plan,
         subscriptionEndDate,
+        subscriptionStartDate,
+        billingCycle,
         isTrialActive: false,
         payment_amount: planPrice,
         payment_date: paidAt,

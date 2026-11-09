@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { sendAccountDeletedEmail } = require('../services/emailService');
+const { subscriptionSummary } = require('../services/subscriptionSummary');
 
 /**
  * Profile fields a user may set themselves. Everything else — subscription,
@@ -100,7 +101,8 @@ const getUser = async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    res.json({ success: true, data: user });
+    // `subscription` is the single summary both the web and mobile apps display.
+    res.json({ success: true, data: { ...user.toObject(), subscription: subscriptionSummary(user) } });
   } catch (error) {
     console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });

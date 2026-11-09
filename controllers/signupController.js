@@ -10,7 +10,7 @@
  *   6. Create AuthUser in auth_users
  *   7. Create User profile in fashiontally_users
  *   8. Create BrandSetting
- *   9. Send WhatsApp welcome (non-blocking)
+ *   9. Send welcome email (non-blocking)
  */
 
 const crypto = require('crypto');
@@ -19,7 +19,6 @@ const AuthUser = require('../models/AuthUser');
 const BrandSetting = require('../models/BrandSetting');
 const cloudinary = require('../config/cloudinary');
 const { hashPassword } = require('../utils/passwordUtils');
-const { sendWhatsAppTemplate } = require('../services/whatsappService');
 const { sendWelcomeEmail } = require('../services/emailService');
 const { isValidVerificationToken } = require('../services/otpService');
 const { trialEndDate: getTrialEndDate } = require('../config/trial');
@@ -185,16 +184,6 @@ const signupUser = async (req, res) => {
     }
 
     res.status(201).json({ success: true, message: 'User created successfully', user: newUser });
-
-    // ── Step 8: WhatsApp welcome (non-blocking) ──────────────
-    if (phone) {
-      sendWhatsAppTemplate(phone.trim(), { 1: name.trim() })
-        .then(r => {
-          if (!r.success) console.warn('[signup] WhatsApp not sent:', r.error);
-          else console.log('[signup] WhatsApp sent ✅');
-        })
-        .catch(e => console.error('[signup] WhatsApp error:', e.message));
-    }
 
     // ── Step 9: Welcome email via Brevo (non-blocking) ───────
     sendWelcomeEmail(normalizedEmail, name);

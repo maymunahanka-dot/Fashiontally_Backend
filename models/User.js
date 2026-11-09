@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema({
   isTrialActive:      { type: Boolean, default: true },
   planType:           { type: String, default: 'Growth' },
   subscriptionEndDate:{ type: String },
+  // Start of the current paid period and whether it was paid monthly or yearly
+  // (set on payment; older accounts don't have them and are worked out instead)
+  subscriptionStartDate: { type: String },
+  billingCycle:       { type: String, enum: ['monthly', 'yearly'] },
   isSubscribed:       { type: Boolean, default: true },
   trialStartDate:     { type: String },
   payment_amount:     { type: Number, default: null },

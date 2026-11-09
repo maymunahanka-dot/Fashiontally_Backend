@@ -24,7 +24,7 @@
  *   So: MongoDB write → Firebase write → listener sees tag → skips → no loop.
  */
 
-const { pushToFirebase, pushDeleteToFirebase, pushAuthUpdateToFirebase } =
+const { pushToFirebase, pushDeleteToFirebase, pushAuthUpdateToFirebase, isMongoWatchActive } =
   require('../services/syncScheduler.service');
 const firebaseAdmin = require('../firebase/firebase-admin'); // the admin APP instance
 const adminSdk      = require('firebase-admin');             // the SDK (for FieldValue)
@@ -276,7 +276,12 @@ function firebaseSyncMiddleware(req, res, next) {
         }
 
         // Handle arrays (e.g. bulk operations) — sync each item
+        // While the MongoDB watcher runs it already copies every create/update to
+        // Firebase, so pushing here too would write the same record twice.
+        const watcherCopies = isMongoWatchActive();
+
         if (Array.isArray(docData)) {
+          if (watcherCopies) return;
           for (let item of docData) {
             if (typeof item.toObject === 'function') item = item.toObject({ virtuals: false });
             pushToFirebase(collection, item).catch(() => {});
@@ -285,7 +290,7 @@ function firebaseSyncMiddleware(req, res, next) {
         }
 
         // Single document
-        pushToFirebase(collection, docData).catch(() => {});
+        if (!watcherCopies) pushToFirebase(collection, docData).catch(() => {});
 
         // Also push auth update if this is a user/auth route
         const isAuthRoute = AUTH_ROUTES.some(r => req.path.startsWith(r));

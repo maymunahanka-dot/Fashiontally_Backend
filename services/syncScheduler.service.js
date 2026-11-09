@@ -42,6 +42,8 @@ const auth = admin.auth();
 
 // Stores all listener unsubscribe functions for clean shutdown
 const unsubscribeFunctions = [];
+// Set on shutdown so dropped listeners/watchers don't re-attach themselves
+let shuttingDown = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -54,6 +56,10 @@ const SYNC_TIME_TAG    = '_syncedAt';
 const SYNC_SOURCE_VAL  = 'mongodb';
 const LOOP_WINDOW_MS   = 10000; // ignore our own writes for 10 seconds
 
+// Tag stamped on MongoDB writes that came FROM Firebase, so the MongoDB
+// watcher doesn't copy them straight back to Firebase.
+const FROM_FIREBASE_TAG = '_lastSyncFromFirebase';
+
 // Fields that only MongoDB owns — never overwrite these from Firebase
 // and never send them to Firebase
 const MONGO_ONLY_FIELDS = [
@@ -64,6 +70,7 @@ const MONGO_ONLY_FIELDS = [
   'fcmTokens',
   '_id',
   '__v',
+  FROM_FIREBASE_TAG,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,7 +267,7 @@ async function fullSyncCollection({ fs: fsName, mongo: mongoName, matchKey, uidF
       bulkOps.push({
         updateOne: {
           filter: { [matchKey]: data[matchKey] },
-          update: { $set: safeData },
+          update: { $set: { ...safeData, [FROM_FIREBASE_TAG]: new Date().toISOString() } },
           upsert: true,
         },
       });
@@ -279,7 +286,13 @@ async function fullSyncCollection({ fs: fsName, mongo: mongoName, matchKey, uidF
 
 // ── Real-time listener: Firebase → MongoDB ───────────────────────────────────
 
-function startListenerForCollection({ fs: fsName, mongo: mongoName, matchKey, uidField }) {
+/**
+ * @param config   collection config from FLAT_COLLECTIONS
+ * @param catchUpSince  when re-attaching after a dropped connection: also apply
+ *   Firebase docs changed since this time (the start-up dump is otherwise skipped)
+ */
+function startListenerForCollection(config, catchUpSince = null) {
+  const { fs: fsName, mongo: mongoName, matchKey, uidField } = config;
   const mongoCol = mongoose.connection.collection(mongoName);
 
   console.log(`[sync:listener] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
@@ -296,19 +309,25 @@ function startListenerForCollection({ fs: fsName, mongo: mongoName, matchKey, ui
 
   const unsubscribe = db.collection(fsName).onSnapshot(
     async (snapshot) => {
-      const changes = snapshot.docChanges();
+      let changes = snapshot.docChanges();
 
-      // First snapshot = initial state dump from Firestore (all docs as 'added')
-      // Skip it — full sync already handled this
+      // First snapshot = initial state dump from Firestore (all docs as 'added').
+      // Skip it — except, after a reconnect, docs that changed while we were away.
       if (isFirstSnapshot) {
         isFirstSnapshot = false;
-        const realChanges = changes.filter(c => c.type !== 'added');
+        const missed = catchUpSince
+          ? changes.filter(c => {
+              const t = toDate(c.doc.data()?.updatedAt);
+              return c.type === 'added' && t && t >= catchUpSince;
+            })
+          : [];
+        const realChanges = changes.filter(c => c.type !== 'added').concat(missed);
         if (realChanges.length === 0) {
           console.log(`[sync:listener] ✅ Listener READY — ${fsName} (skipped ${changes.length} initial docs, waiting for real changes...)\n`);
           return;
         }
-        // If somehow there are non-added changes in first snapshot, process them
-        console.log(`[sync:listener] ✅ Listener READY — ${fsName} (${realChanges.length} pending changes)\n`);
+        console.log(`[sync:listener] ✅ Listener READY — ${fsName} (${realChanges.length} changes to catch up on)\n`);
+        changes = realChanges; // never re-apply the whole initial dump
       }
 
       // Filter to only real changes (skip 'added' after initial snapshot too,
@@ -369,7 +388,8 @@ function startListenerForCollection({ fs: fsName, mongo: mongoName, matchKey, ui
           const { _id, ...safeData } = data;
           const result = await mongoCol.updateOne(
             { [matchKey]: data[matchKey] },
-            { $set: safeData },
+            // the tag tells the MongoDB watcher not to copy this back to Firebase
+            { $set: { ...safeData, [FROM_FIREBASE_TAG]: new Date().toISOString() } },
             { upsert: true }
           );
 
@@ -485,7 +505,16 @@ function startListenerForCollection({ fs: fsName, mongo: mongoName, matchKey, ui
 
     (err) => {
       console.error(`\n[sync:listener] ❌❌❌ LISTENER ERROR — ${fsName}`);
-      console.error(`[sync:listener]    ${err.code}: ${err.message}\n`);
+      console.error(`[sync:listener]    ${err.code}: ${err.message}`);
+      // A Firestore listener stays dead after an error (e.g. the network dropped),
+      // so re-attach it, catching up on anything changed since shortly before the drop.
+      const since = catchUpSince || new Date(Date.now() - 60 * 1000);
+      try { unsubscribe(); } catch (_) {}
+      const i = unsubscribeFunctions.findIndex(u => u.unsubscribe === unsubscribe);
+      if (i >= 0) unsubscribeFunctions.splice(i, 1);
+      if (shuttingDown) return;
+      console.error(`[sync:listener]    ↻ re-attaching ${fsName} in 15s\n`);
+      setTimeout(() => startListenerForCollection(config, since), 15000);
     }
   );
 
@@ -572,6 +601,89 @@ async function pushDeleteToFirebase(mongoCollectionName, matchValue) {
   } catch (err) {
     console.error(`[sync→firebase] ❌ delete ${mongoCollectionName}:`, err.message);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MONGODB WATCHER — every MongoDB change → Firebase, straight away
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Watches MongoDB itself (a change stream), so it catches every write: API
+// calls, payments, webhooks, scheduled jobs, scripts. Before this, only writes
+// whose API reply contained the saved record reached Firebase.
+//
+// Writes that came FROM Firebase carry FROM_FIREBASE_TAG and are skipped, so
+// nothing bounces back and forth. Deletes are still pushed by the API
+// middleware and the account-deletion service (a delete event no longer has
+// the record, so the Firestore document id isn't known here).
+
+let mongoWatchersOpen = 0;
+
+/** True while MongoDB is being watched (the API middleware then skips duplicate pushes). */
+const isMongoWatchActive = () => mongoWatchersOpen > 0;
+
+const cameFromFirebase = (event) => {
+  if (event.operationType === 'update') {
+    // Only the Firebase listener sets this field, so its presence in the
+    // changed fields means the listener made this change.
+    return Object.prototype.hasOwnProperty.call(event.updateDescription?.updatedFields || {}, FROM_FIREBASE_TAG);
+  }
+  // insert / replace: the tag is on the whole document; trust it only if fresh
+  const stamped = toDate(event.fullDocument?.[FROM_FIREBASE_TAG]);
+  return Boolean(stamped && Date.now() - stamped.getTime() < LOOP_WINDOW_MS);
+};
+
+function watchMongoCollection(config) {
+  const mongoCol = mongoose.connection.collection(config.mongo);
+  let stream = null;
+  let stopped = false;
+
+  const open = () => {
+    if (stopped || shuttingDown) return;
+    try {
+      stream = mongoCol.watch(
+        [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] } } }],
+        { fullDocument: 'updateLookup' }
+      );
+      mongoWatchersOpen++;
+      let counted = true;
+
+      stream.on('change', async (event) => {
+        const doc = event.fullDocument;
+        if (!doc) return; // deleted before we could read it
+        if (cameFromFirebase(event)) {
+          console.log(`[sync:mongo-watch] ⏭️  ${config.mongo} ${event.operationType} came from Firebase — not copied back`);
+          return;
+        }
+        console.log(`[sync:mongo-watch] → Firebase: ${config.mongo} ${event.operationType} ${doc[config.matchKey] ?? ''}`);
+        await pushToFirebase(config.mongo, doc);
+        syncStats.recordEvent?.('mongo→firebase', config.mongo);
+      });
+
+      stream.on('error', (err) => {
+        console.error(`[sync:mongo-watch] ❌ ${config.mongo}: ${err.message} — reconnecting in 5s`);
+        if (counted) { mongoWatchersOpen--; counted = false; }
+        stream.close().catch(() => {});
+        setTimeout(open, 5000);
+      });
+      stream.on('close', () => {
+        if (counted) { mongoWatchersOpen--; counted = false; }
+      });
+    } catch (err) {
+      console.error(`[sync:mongo-watch] ❌ could not watch ${config.mongo}: ${err.message} — retrying in 5s`);
+      setTimeout(open, 5000);
+    }
+  };
+
+  open();
+  unsubscribeFunctions.push({
+    name: `mongo-watch:${config.mongo}`,
+    unsubscribe: () => { stopped = true; stream?.close().catch(() => {}); },
+  });
+}
+
+function startMongoWatchers() {
+  for (const col of FLAT_COLLECTIONS) watchMongoCollection(col);
+  console.log(`[sync:mongo-watch] 👀 Watching ${FLAT_COLLECTIONS.length} MongoDB collections → Firebase`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -917,7 +1029,16 @@ function startMeasurementsListener() {
         console.error(`[sync:listener]    Go to Firebase Console → Firestore → Indexes → add:`);
         console.error(`[sync:listener]    Collection group: measurements | Field: __name__ | Ascending`);
       }
-      console.error(`[sync:listener]    Measurements will NOT sync from Firebase until this is fixed.\n`);
+      try { unsubscribe(); } catch (_) {}
+      const i = unsubscribeFunctions.findIndex(u => u.unsubscribe === unsubscribe);
+      if (i >= 0) unsubscribeFunctions.splice(i, 1);
+      if (shuttingDown || (err.message && err.message.includes('index'))) {
+        console.error(`[sync:listener]    Measurements will NOT sync from Firebase until this is fixed.\n`);
+        return;
+      }
+      // Dropped connection: re-attach (measurement saves already keep the newest value)
+      console.error(`[sync:listener]    ↻ re-attaching measurements listener in 15s\n`);
+      setTimeout(startMeasurementsListener, 15000);
     }
   );
 
@@ -941,6 +1062,7 @@ function startAuthUsersHourlySync() {
 // GRACEFUL SHUTDOWN
 // ─────────────────────────────────────────────────────────────────────────────
 function stopAllListeners() {
+  shuttingDown = true; // stop listeners/watchers from re-attaching themselves
   console.log('\n[sync] 🛑 Closing all Firebase listeners...');
   for (const { name, unsubscribe } of unsubscribeFunctions) {
     try   { unsubscribe(); console.log(`[sync]   closed: ${name}`); }
@@ -956,9 +1078,17 @@ process.on('SIGTERM', stopAllListeners);
 // ─────────────────────────────────────────────────────────────────────────────
 async function startSyncScheduler() {
   try {
-    syncStats.setRunning(true);
-    await runInitialFullSync();
-    syncStats.setRunning(false);
+    // The start-up copy (Firebase → MongoDB) is OFF: it overwrote newer MongoDB data,
+    // e.g. reverting a just-paid subscription to the old Firebase values on every restart.
+    // The live listeners below keep syncing new changes. Set SYNC_FULL_ON_STARTUP=true
+    // to run the full copy once (for example to fill an empty database).
+    if (process.env.SYNC_FULL_ON_STARTUP === 'true') {
+      syncStats.setRunning(true);
+      await runInitialFullSync();
+      syncStats.setRunning(false);
+    } else {
+      console.log('[sync] ⏭️  Start-up full copy skipped (SYNC_FULL_ON_STARTUP is not "true")');
+    }
 
     console.log('\n[sync] ╔══════════════════════════════════════════════════╗');
     console.log('[sync] ║       STARTING REAL-TIME FIREBASE LISTENERS       ║');
@@ -970,13 +1100,14 @@ async function startSyncScheduler() {
     }
     startMeasurementsListener();
     startAuthUsersHourlySync();
+    startMongoWatchers();
     syncStats.setListenersActive(true);
 
     console.log('[sync] ╔══════════════════════════════════════════════════╗');
     console.log('[sync] ║           ALL LISTENERS ARE NOW ACTIVE           ║');
     console.log('[sync] ║                                                  ║');
     console.log('[sync] ║  Firebase → MongoDB : REAL-TIME                  ║');
-    console.log('[sync] ║  MongoDB → Firebase : via middleware              ║');
+    console.log('[sync] ║  MongoDB → Firebase : REAL-TIME (MongoDB watcher) ║');
     console.log('[sync] ║  Auth re-sync       : every hour                 ║');
     console.log('[sync] ╚══════════════════════════════════════════════════╝\n');
 
@@ -994,4 +1125,5 @@ module.exports = {
   pushToFirebase,
   pushDeleteToFirebase,
   pushAuthUpdateToFirebase,
+  isMongoWatchActive,
 };

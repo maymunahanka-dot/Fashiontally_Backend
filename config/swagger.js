@@ -103,32 +103,6 @@ const paths = {
     },
   },
 
-  '/api/auth/send-otp': {
-    post: {
-      summary: 'Send OTP to a phone number via WhatsApp',
-      tags: ['Auth'],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['phone'],
-              properties: {
-                phone: { type: 'string', example: '+2348012345678' },
-              },
-            },
-          },
-        },
-      },
-      responses: {
-        200: { description: 'OTP sent via WhatsApp — returns { success, otp }' },
-        400: { description: 'phone is required' },
-        500: { description: 'Failed to send OTP' },
-      },
-    },
-  },
-
   '/api/auth/send-email-otp': {
     post: {
       summary: 'Send OTP to an email address',

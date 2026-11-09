@@ -35,15 +35,4 @@ const otpVerifyLimiter = limiter({
   message: 'Too many verification attempts. Please try again later.',
 });
 
-/**
- * WhatsApp OTP has no app using it yet and every message costs money,
- * so it also gets a small cap shared by all callers.
- */
-const whatsappOtpGlobalLimiter = limiter({
-  windowMinutes: 60,
-  max: 50,
-  keyGenerator: () => 'whatsapp-otp',
-  message: 'WhatsApp verification is temporarily unavailable. Please try again later.',
-});
-
-module.exports = { otpSendLimiter, otpVerifyLimiter, whatsappOtpGlobalLimiter };
+module.exports = { otpSendLimiter, otpVerifyLimiter };
