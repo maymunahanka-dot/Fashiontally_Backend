@@ -9,6 +9,7 @@ const {
   flutterwavePaymentStatus,
   flutterwaveWebhook,
 } = require('../controllers/paymentController');
+const { verifyPaystackPayment, paystackWebhook } = require('../controllers/paystackController');
 const { verifyToken, optionalVerifyToken } = require('../middleware/auth');
 
 // No /create: payments are only recorded after Flutterwave confirms them
@@ -25,5 +26,9 @@ router.post('/flutterwave/verify', optionalVerifyToken, verifyFlutterwavePayment
 router.get('/flutterwave/status', flutterwavePaymentStatus);
 // 3) Flutterwave webhook — activates even if the user never returns to the site
 router.post('/flutterwave/webhook', flutterwaveWebhook);
+
+// Paystack: same flow. Waiting for a pending payment uses /flutterwave/status?txRef=<reference>.
+router.post('/paystack/verify', optionalVerifyToken, verifyPaystackPayment);
+router.post('/paystack/webhook', paystackWebhook);
 
 module.exports = router;

@@ -13,7 +13,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.options(/.*/, cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // Paystack signs the exact bytes it sends, so keep them for the webhook signature check.
+  verify: (req, _res, buf) => {
+    if (req.originalUrl.startsWith('/api/payment/paystack/webhook')) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // ── Swagger ───────────────────────────────────────────────────

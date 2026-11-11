@@ -28,6 +28,29 @@ const WEB_PATHS = {
 };
 
 /**
+ * Notification types that are also saved for the inbox (web notification panel and
+ * the app's notification screen), so they can be seen later even without a phone.
+ */
+const INBOX_TYPES = new Set(['payment_success', 'plan_ending', 'plan_expired', 'subscription_cancelled']);
+
+/** Saves an inbox copy. Never throws: a failed save must not stop the push. */
+const saveToInbox = async (user, title, body, data) => {
+  if (!INBOX_TYPES.has(data?.type)) return;
+  try {
+    const UserNotification = require('../models/UserNotification');
+    await UserNotification.create({
+      email: user.email,
+      type: data.type,
+      title,
+      body,
+      url: WEB_PATHS[data.type] || '',
+    });
+  } catch (error) {
+    console.error(`[notification] inbox save failed for ${user.email}:`, error.message);
+  }
+};
+
+/**
  * Which of the account's devices a notification goes to:
  *   'everyone' — owner and team members (business alerts: orders, stock, ...)
  *   'owner'    — only the account owner (billing, security, team changes)
@@ -58,6 +81,9 @@ const sendNotification = async (userId, title, body, data = {}, { audience = 'ev
       console.warn(`[notification] User not found: ${userId}`);
       return;
     }
+
+    // Keep a copy for the inbox first, so it's there even if no phone gets the push.
+    await saveToInbox(user, title, body, data);
 
     if (!user.fcmTokens || user.fcmTokens.length === 0) {
       console.warn(`[notification] No devices registered for: ${user.email}`);
@@ -153,7 +179,12 @@ const sendNotificationToMany = async (userIds, title, body, data = {}) => {
 /** Same as sendNotification, but finds the account by the owner's email. Never throws. */
 const notifyByEmail = async (ownerEmail, title, body, data = {}, options = {}) => {
   try {
-    const user = await User.findOne({ email: String(ownerEmail || '').toLowerCase() }).select('_id').lean();
+    // Some accounts were saved with capital letters in the email, so match either way.
+    const value = String(ownerEmail || '').trim();
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = value
+      ? await User.findOne({ email: new RegExp(`^${escaped}$`, 'i') }).select('_id').lean()
+      : null;
     if (user) await sendNotification(String(user._id), title, body, data, options);
   } catch (error) {
     console.error(`[notification] notifyByEmail failed for ${ownerEmail}:`, error.message);
@@ -176,4 +207,4 @@ const notifyPerson = async (personEmail, title, body, data = {}) => {
   }
 };
 
-module.exports = { sendNotification, sendNotificationToMany, notifyByEmail, notifyPerson, deliverPush, devicesFor };
+module.exports = { sendNotification, sendNotificationToMany, notifyByEmail, notifyPerson, deliverPush, devicesFor, INBOX_TYPES };

@@ -256,7 +256,7 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
     planPrice,
     billingCycle,
     status: 'successful',
-    gateway: 'flutterwave',
+    gateway: options.gateway || 'flutterwave',
     transactionId: tx.tx_ref || '',
     providerTransactionId,
     paidAt,
