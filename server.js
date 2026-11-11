@@ -63,6 +63,7 @@ const userRoutes                    = require('./routes/user');
 const subAdminRoutes                = require('./routes/subAdmin');
 const campaignRoutes                = require('./routes/campaign');
 const demoRequestRoutes             = require('./routes/demoRequest');
+const paymentLinkRoutes             = require('./routes/paymentLink');
 const adminAuthRoutes               = require('./routes/adminAuth');
 const adminDashboardRoutes          = require('./routes/adminDashboard');
 const adminUsersRoutes              = require('./routes/adminUsers');
@@ -125,6 +126,8 @@ app.use('/api/system-setting', systemSettingRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/measurement', measurementRoutes);
 app.use('/api/demo-request', demoRequestRoutes);
+// Not under /api/payment so the Firebase sync middleware leaves it alone
+app.use('/api/pay-link', paymentLinkRoutes);
 app.use('/api/admin', adminAuthRoutes);
 app.use('/api/admin', adminDashboardRoutes);
 app.use('/api/admin/users', adminUsersRoutes);

@@ -139,11 +139,13 @@ const parseTxRef = (txRef) => {
 
 const findUserForPayment = async ({ userKey, email }) => {
   const candidates = [email, userKey]
-    .map((value) => String(value || '').trim().toLowerCase())
+    .map((value) => String(value || '').trim())
     .filter(Boolean);
 
   for (const value of candidates) {
-    let user = await User.findOne({ email: value });
+    // Emails are compared without caring about capital letters (some accounts were saved with them).
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let user = await User.findOne({ email: new RegExp(`^${escaped}$`, 'i') });
     if (user) return user;
 
     user = await User.findOne({ uid: value });
