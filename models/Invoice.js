@@ -25,6 +25,7 @@ const invoiceSchema = new mongoose.Schema({
     taxRate: { type: Number, default: 0 },
     taxAmount: { type: Number, default: 0 },
     amount: { type: Number, default: 0 },
+    amountPaid: { type: Number, default: 0 }, // Naira; full total when Paid, typed in when Partially Paid
     notes: { type: String, default: '' },
     requiresSignature: { type: Boolean, default: false },
     signatureNote: { type: String, default: '' },

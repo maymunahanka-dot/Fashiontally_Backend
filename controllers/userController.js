@@ -101,8 +101,41 @@ const getUser = async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
+    // A team member gets their own language, not the owner's
+    let language = user.language || 'en';
+    if (String(req.user?.email || '').toLowerCase() !== String(req.effectiveEmail || '').toLowerCase()) {
+      const SubAdmin = require('../models/SubAdmin');
+      const member = await SubAdmin.findOne({ email: String(req.user.email).toLowerCase() }).select('language').lean();
+      language = member?.language || 'en';
+    }
+
     // `subscription` is the single summary both the web and mobile apps display.
-    res.json({ success: true, data: { ...user.toObject(), subscription: subscriptionSummary(user) } });
+    res.json({ success: true, data: { ...user.toObject(), language, subscription: subscriptionSummary(user) } });
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * PUT /api/user/language  { language: 'en' | 'fr' }
+ * Saves the signed-in person's app language (owner on the account, team member on their own record).
+ */
+const setLanguage = async (req, res) => {
+  try {
+    const language = String(req.body?.language || '').toLowerCase();
+    if (!['en', 'fr'].includes(language)) {
+      return res.status(400).json({ success: false, error: "Language must be 'en' or 'fr'" });
+    }
+    const me = String(req.user?.email || '').toLowerCase();
+    const isOwner = me === String(req.effectiveEmail || '').toLowerCase();
+    if (isOwner) {
+      await User.updateOne({ email: req.effectiveEmail }, { $set: { language, updatedAt: new Date().toISOString() } });
+    } else {
+      const SubAdmin = require('../models/SubAdmin');
+      await SubAdmin.updateOne({ email: me }, { $set: { language, updatedAt: new Date().toISOString() } });
+    }
+    res.json({ success: true, data: { language } });
   } catch (error) {
     console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -110,6 +143,7 @@ const getUser = async (req, res) => {
 };
 
 module.exports = {
+  setLanguage,
   createUser,
   deleteUser,
   editUser,

@@ -17,7 +17,14 @@ const brandSettingSchema = new mongoose.Schema({
     secondaryColor: { type: String, default: '#ffffff' },
     footerText: { type: String, default: '' },
     termsAndConditions: { type: String, default: '' },
-    inventoryCurrency: { type: String, enum: ['NGN', 'USD'], default: 'NGN' },
+    // Currency money is shown in (any ISO code, e.g. NGN, USD, CNY). Amounts are always saved in Naira.
+    inventoryCurrency: {
+        type: String,
+        default: 'NGN',
+        uppercase: true,
+        trim: true,
+        validate: { validator: (v) => /^[A-Z]{3}$/.test(v), message: 'Currency must be a 3-letter code like NGN or USD' },
+    },
     updatedAt: { type: String, default: () => new Date().toISOString() },
 });
 

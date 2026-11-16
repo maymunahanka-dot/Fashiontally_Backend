@@ -8,6 +8,8 @@ const userSchema = new mongoose.Schema({
   phone:              { type: String },
   originalPhone:      { type: String },
   country:            { type: String },
+  // App language: 'en' or 'fr' (set from the country at sign-up, changeable in Settings)
+  language:           { type: String, enum: ['en', 'fr'], default: 'en' },
   state:              { type: String, default: '' },
   lga:                { type: String, default: '' },
   address:            { type: String, default: '' },

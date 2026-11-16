@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const User = require('../models/User');
 const AuthUser = require('../models/AuthUser');
 const BrandSetting = require('../models/BrandSetting');
+const { currencyForCountry, languageForCountry } = require('../config/countryCurrency');
 const cloudinary = require('../config/cloudinary');
 const { hashPassword } = require('../utils/passwordUtils');
 const { sendWelcomeEmail } = require('../services/emailService');
@@ -139,6 +140,7 @@ const signupUser = async (req, res) => {
           phone:               phone.trim(),
           originalPhone:       phone.trim(),
           country:             country.trim(),
+          language:            ['en', 'fr'].includes(req.body.language) ? req.body.language : languageForCountry(country),
           state:               '',
           lga:                 '',
           address:             '',
@@ -174,6 +176,8 @@ const signupUser = async (req, res) => {
             businessEmail: normalizedEmail,
             businessPhone: phone.trim(),
             logoUrl,
+            // Show money in the sign-up country's currency (changeable in Brand settings)
+            inventoryCurrency: currencyForCountry(country),
           },
         },
         { upsert: true, new: true }

@@ -10,6 +10,7 @@ const subAdminSchema = new mongoose.Schema({
   invitedBy:  { type: String, required: true },    // owner's email
   permissions:{ type: mongoose.Schema.Types.Mixed, default: {} },
   status:     { type: String, default: 'active' },
+  language:   { type: String, enum: ['en', 'fr'], default: 'en' }, // team member's own app language
   createdAt:  { type: String, default: () => new Date().toISOString() },
   updatedAt:  { type: String, default: () => new Date().toISOString() },
   password:   { type: String, default: '' },       // old app stores plain password for display

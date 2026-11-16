@@ -6,11 +6,13 @@ const {
   deleteUser, 
   editUser, 
   getUser, 
+  setLanguage,
 } = require('../controllers/userController');
 
 router.post('/create', verifyToken, createUser);
 router.delete('/delete', verifyToken, deleteUser);
 router.put('/edit', verifyToken, editUser);
 router.get('/get', verifyToken, getUser);
+router.put('/language', verifyToken, setLanguage);
 
 module.exports = router;
