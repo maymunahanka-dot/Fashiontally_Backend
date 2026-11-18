@@ -435,32 +435,82 @@ const sendBillingReminderEmail = (kind, email, { name, planType, endDate, daysLe
 };
 
 /**
- * Layout for admin emails. Built like the verification-code email (which reliably reaches inboxes):
- * one plain block, solid colours, no images, no gradients or shadows, and a single link (the
- * button). Spam filters judge bulk-looking mail on exactly those things, so keep it this simple.
- * Dark, to match the landing page.
+ * Layout for admin emails, dark like the landing page: a branded header (logo, label, subject as
+ * the headline, teal glow) over a dark body, on a near-black background.
+ * Tables + inline styles so it holds up in Gmail, Outlook and Apple Mail; the glow is a gradient
+ * over a plain dark colour for clients that drop gradients.
  * `paragraphs` are trusted HTML strings: escape user data before passing it in.
  */
-const brandLayout = ({ label, heading, paragraphs, button }) => `
-  <div style="background:#0a0a0a;padding:24px 12px;">
-    <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #141414; border-radius: 12px; overflow: hidden; border: 1px solid #262626;">
-      <div style="background: #16988d; padding: 28px 40px;">
-        <p style="color: #d4f5f1; margin: 0 0 6px 0; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">FashionTally ${label ? `&middot; ${label}` : ''}</p>
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px; line-height: 1.3; font-weight: 700;">${heading}</h1>
-      </div>
-      <div style="padding: 36px 40px;">
-        ${paragraphs.map((p, i) => `<p style="color: ${i === 0 ? '#f5f5f5' : '#bdbdbd'}; font-size: 15px; line-height: 1.7; margin: 0 0 16px 0;${i === 0 ? ' font-weight: 600;' : ''}">${p}</p>`).join('')}
-        ${button ? `
-        <div style="margin: 28px 0 4px 0;">
-          <a href="${button.url}" style="display: inline-block; background: #2fd3c3; color: #04201d; font-size: 15px; font-weight: 700; text-decoration: none; padding: 14px 28px; border-radius: 8px;">${button.text}</a>
-        </div>` : ''}
-      </div>
-      <div style="background: #0f0f0f; padding: 20px 40px; text-align: center; border-top: 1px solid #262626;">
-        <p style="color: #8a8a8a; font-size: 12px; line-height: 1.6; margin: 0;">You're receiving this because you have a FashionTally account.<br/>&copy; ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
-      </div>
-    </div>
-  </div>
-`;
+const brandLayout = ({ label, heading, paragraphs, button }) => {
+  const font = `Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
+  const site = SITE_URL();
+  const siteHost = site.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  return `
+<div style="margin:0;padding:0;background:#050505;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#050505" style="background:#050505;">
+    <tr><td align="center" style="padding:28px 12px 36px 12px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;font-family:${font};">
+        <tr><td bgcolor="#0d0d0d" style="border-radius:20px;overflow:hidden;background:#0d0d0d;border:1px solid rgba(255,255,255,0.09);">
+
+          <!-- Header -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td bgcolor="#0b1413" style="background-color:#0b1413;border-bottom:1px solid rgba(255,255,255,0.07);background-image:radial-gradient(70% 90% at 85% 0%, rgba(47,211,195,0.30), rgba(0,0,0,0) 70%), radial-gradient(60% 80% at 0% 100%, rgba(22,152,141,0.28), rgba(0,0,0,0) 70%);padding:28px 36px 36px 36px;border-radius:20px 20px 0 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    <a href="${site}" style="text-decoration:none;">
+                      <img src="${site}/logo.png" width="30" height="30" alt="" style="display:inline-block;vertical-align:middle;border:0;border-radius:8px;" />
+                      <span style="display:inline-block;vertical-align:middle;margin-left:9px;font-size:16px;font-weight:600;letter-spacing:-0.2px;color:#f3f3f1;">FashionTally</span>
+                    </a>
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <span style="display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:rgba(243,243,241,0.8);">${label}</span>
+                  </td>
+                </tr>
+              </table>
+              <h1 style="margin:34px 0 0 0;font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-0.8px;color:#ffffff;">${heading}</h1>
+              <div style="margin-top:18px;width:44px;height:3px;border-radius:3px;background:#2fd3c3;line-height:3px;font-size:0;">&nbsp;</div>
+            </td></tr>
+          </table>
+
+          <!-- Body -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="padding:34px 36px 38px 36px;">
+              ${paragraphs.map((p, i) => `<p style="margin:0 0 16px 0;font-size:${i === 0 ? '16px' : '15px'};line-height:1.75;color:${i === 0 ? '#f3f3f1' : 'rgba(243,243,241,0.72)'};${i === 0 ? 'font-weight:600;' : ''}">${p}</p>`).join('')}
+              ${button ? `
+              <!-- Button: teal-to-mint pill with a soft glow; solid teal where gradients aren't supported -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:32px 0 0 0;">
+                <tr><td bgcolor="#16988d" style="border-radius:999px;background-color:#16988d;background-image:linear-gradient(135deg,#2fd3c3 0%,#16988d 100%);box-shadow:0 8px 24px rgba(47,211,195,0.28), inset 0 1px 0 rgba(255,255,255,0.25);">
+                  <a href="${button.url}" style="display:inline-block;padding:15px 30px 15px 30px;border-radius:999px;color:#04201d;font-size:15px;font-weight:700;letter-spacing:0.1px;text-decoration:none;mso-padding-alt:0;">
+                    ${button.text}&nbsp;&nbsp;<span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:999px;background:rgba(4,32,29,0.14);font-size:13px;">&rarr;</span>
+                  </a>
+                </td></tr>
+              </table>` : ''}
+            </td></tr>
+          </table>
+
+          <!-- Help strip -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td bgcolor="#111312" style="padding:18px 36px;background:#111312;border-top:1px solid rgba(255,255,255,0.07);font-size:13px;line-height:1.6;color:rgba(243,243,241,0.6);border-radius:0 0 20px 20px;">
+              Need a hand? Our team is happy to help on <a href="${site}/contact" style="color:#2fd3c3;font-weight:600;text-decoration:none;">${siteHost}/contact</a>
+            </td></tr>
+          </table>
+
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td align="center" style="padding:22px 12px 0 12px;font-size:12px;line-height:1.7;color:#6f6f6c;">
+          You're receiving this as part of the FashionTally community: the workspace for fashion businesses.<br/>
+          <a href="${site}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Website</a>
+          &nbsp;·&nbsp;
+          <a href="${APP_URL()}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Open the app</a>
+          <br/>© ${new Date().getFullYear()} FashionTally
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>`;
+};
 
 /**
  * Subject + HTML of a message an admin writes (plain text, escaped). `campaign` marks emails sent
