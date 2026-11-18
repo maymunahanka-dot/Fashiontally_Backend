@@ -434,22 +434,117 @@ const sendBillingReminderEmail = (kind, email, { name, planType, endDate, daysLe
   }));
 };
 
-/** A message an admin writes to a user from the admin panel (plain text, escaped). */
-const sendAdminMessageEmail = (email, { name, subject, message }) =>
-  sendEmail('admin-message', email, String(subject || 'A message from FashionTally').slice(0, 150), emailLayout({
-    heading: escapeHtml(String(subject || 'A message from FashionTally').slice(0, 150)),
-    paragraphs: [
-      `Hi ${firstName(name, email)},`,
-      ...String(message || '')
-        .split(/\n{2,}/)
-        .map((para) => escapeHtml(para.trim()).replace(/\n/g, '<br/>'))
-        .filter(Boolean),
-    ],
-    button: { text: 'Open FashionTally', url: APP_URL() },
-  }));
+/**
+ * Layout for admin emails, dark like the landing page: a branded header (logo, label, subject as
+ * the headline, teal glow) over a dark body, on a near-black background.
+ * Tables + inline styles so it holds up in Gmail, Outlook and Apple Mail; the glow is a gradient
+ * over a plain dark colour for clients that drop gradients.
+ * `paragraphs` are trusted HTML strings: escape user data before passing it in.
+ */
+const brandLayout = ({ label, heading, paragraphs, button }) => {
+  const font = `Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
+  const site = SITE_URL();
+  const siteHost = site.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  return `
+<div style="margin:0;padding:0;background:#050505;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#050505" style="background:#050505;">
+    <tr><td align="center" style="padding:28px 12px 36px 12px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;font-family:${font};">
+        <tr><td bgcolor="#0d0d0d" style="border-radius:20px;overflow:hidden;background:#0d0d0d;border:1px solid rgba(255,255,255,0.09);">
+
+          <!-- Header -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td bgcolor="#0b1413" style="background-color:#0b1413;border-bottom:1px solid rgba(255,255,255,0.07);background-image:radial-gradient(70% 90% at 85% 0%, rgba(47,211,195,0.30), rgba(0,0,0,0) 70%), radial-gradient(60% 80% at 0% 100%, rgba(22,152,141,0.28), rgba(0,0,0,0) 70%);padding:28px 36px 36px 36px;border-radius:20px 20px 0 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    <a href="${site}" style="text-decoration:none;">
+                      <img src="${site}/logo.png" width="30" height="30" alt="" style="display:inline-block;vertical-align:middle;border:0;border-radius:8px;" />
+                      <span style="display:inline-block;vertical-align:middle;margin-left:9px;font-size:16px;font-weight:600;letter-spacing:-0.2px;color:#f3f3f1;">FashionTally</span>
+                    </a>
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <span style="display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:rgba(243,243,241,0.8);">${label}</span>
+                  </td>
+                </tr>
+              </table>
+              <h1 style="margin:34px 0 0 0;font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-0.8px;color:#ffffff;">${heading}</h1>
+              <div style="margin-top:18px;width:44px;height:3px;border-radius:3px;background:#2fd3c3;line-height:3px;font-size:0;">&nbsp;</div>
+            </td></tr>
+          </table>
+
+          <!-- Body -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="padding:34px 36px 38px 36px;">
+              ${paragraphs.map((p, i) => `<p style="margin:0 0 16px 0;font-size:${i === 0 ? '16px' : '15px'};line-height:1.75;color:${i === 0 ? '#f3f3f1' : 'rgba(243,243,241,0.72)'};${i === 0 ? 'font-weight:600;' : ''}">${p}</p>`).join('')}
+              ${button ? `
+              <!-- Button: teal-to-mint pill with a soft glow; solid teal where gradients aren't supported -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:32px 0 0 0;">
+                <tr><td bgcolor="#16988d" style="border-radius:999px;background-color:#16988d;background-image:linear-gradient(135deg,#2fd3c3 0%,#16988d 100%);box-shadow:0 8px 24px rgba(47,211,195,0.28), inset 0 1px 0 rgba(255,255,255,0.25);">
+                  <a href="${button.url}" style="display:inline-block;padding:15px 30px 15px 30px;border-radius:999px;color:#04201d;font-size:15px;font-weight:700;letter-spacing:0.1px;text-decoration:none;mso-padding-alt:0;">
+                    ${button.text}&nbsp;&nbsp;<span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:999px;background:rgba(4,32,29,0.14);font-size:13px;">&rarr;</span>
+                  </a>
+                </td></tr>
+              </table>` : ''}
+            </td></tr>
+          </table>
+
+          <!-- Help strip -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td bgcolor="#111312" style="padding:18px 36px;background:#111312;border-top:1px solid rgba(255,255,255,0.07);font-size:13px;line-height:1.6;color:rgba(243,243,241,0.6);border-radius:0 0 20px 20px;">
+              Need a hand? Our team is happy to help on <a href="${site}/contact" style="color:#2fd3c3;font-weight:600;text-decoration:none;">${siteHost}/contact</a>
+            </td></tr>
+          </table>
+
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td align="center" style="padding:22px 12px 0 12px;font-size:12px;line-height:1.7;color:#6f6f6c;">
+          You're receiving this as part of the FashionTally community: the workspace for fashion businesses.<br/>
+          <a href="${site}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Website</a>
+          &nbsp;·&nbsp;
+          <a href="${APP_URL()}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Open the app</a>
+          <br/>© ${new Date().getFullYear()} FashionTally
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>`;
+};
+
+/**
+ * Subject + HTML of a message an admin writes (plain text, escaped). `campaign` marks emails sent
+ * to many users (labelled "Update"); a one-off message to one user is labelled "Message".
+ * Also used for the admin panel's email preview.
+ */
+const buildAdminMessageEmail = (email, { name, subject, message, campaign } = {}) => {
+  const cleanSubject = String(subject || 'A message from FashionTally').slice(0, 150);
+  return {
+    subject: cleanSubject,
+    html: brandLayout({
+      label: campaign ? 'Update' : 'Message',
+      heading: escapeHtml(cleanSubject),
+      paragraphs: [
+        `Hi ${firstName(name, email)},`,
+        ...String(message || '')
+          .split(/\n{2,}/)
+          .map((para) => escapeHtml(para.trim()).replace(/\n/g, '<br/>'))
+          .filter(Boolean),
+      ],
+      button: { text: 'Open FashionTally', url: APP_URL() },
+    }),
+  };
+};
+
+/** A message an admin writes to a user from the admin panel */
+const sendAdminMessageEmail = (email, options = {}) => {
+  const { subject, html } = buildAdminMessageEmail(email, options);
+  return sendEmail(options.campaign ? 'admin-campaign' : 'admin-message', email, subject, html);
+};
 
 module.exports = {
   sendAdminMessageEmail,
+  buildAdminMessageEmail,
   sendEmailOTP,
   sendSubscriptionReceipt,
   sendWelcomeEmail,

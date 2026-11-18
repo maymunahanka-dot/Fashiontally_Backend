@@ -7,6 +7,7 @@ const { subscriptionSummary } = require('../services/subscriptionSummary');
 const { markDisabled } = require('../services/disabledAccounts');
 const { sendNotification } = require('../services/notification.service');
 const { sendAdminMessageEmail } = require('../services/emailService');
+const { firebaseAccountTimes, joinedDate } = require('../services/firebaseAccountTimes');
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const exactEmail = (email) => new RegExp(`^${escapeRegex(String(email).trim())}$`, 'i');
@@ -65,14 +66,26 @@ const setLoginDisabled = async (email, disabled) => {
   }
 };
 
+/** Latest of the given ISO dates (or null) */
+const latest = (...values) =>
+  values.filter((v) => v && !Number.isNaN(new Date(v).getTime())).sort((a, b) => new Date(b) - new Date(a))[0] || null;
+
+/** Login + activity dates for one account */
+const activityDates = (doc, fb) => ({
+  createdAt: joinedDate(doc.createdAt, fb),
+  lastLoginAt: latest(doc.lastLoginAt, fb?.signIn),
+  lastActiveAt: latest(doc.lastLoginAt, fb?.signIn, fb?.refresh),
+});
+
 // GET all users + sub-admins (only what the admin list needs: no device tokens or passwords)
 const getAllUsers = async (req, res) => {
   try {
-    const [users, subAdmins, auths, payments] = await Promise.all([
+    const [users, subAdmins, auths, payments, signIns] = await Promise.all([
       User.find({}, '-adminLog -bio -txRef -transactionId').sort({ createdAt: -1 }).lean(),
       SubAdmin.find({}, '-password -adminLog').sort({ createdAt: -1 }).lean(),
       AuthUser.find({}, 'email provider disabled emailVerified').lean(),
       Payment.find({ status: 'successful' }, 'email planPrice').lean(),
+      firebaseAccountTimes(),
     ]);
 
     const authByEmail = new Map(auths.map((a) => [String(a.email).toLowerCase(), a]));
@@ -110,6 +123,7 @@ const getAllUsers = async (req, res) => {
         totalPaid: paidByEmail.get(key) || 0,
         teamCount: teamByOwner.get(key) || 0,
         deviceCount: (fcmTokens || []).length,
+        ...activityDates(u, signIns.get(key)),
       };
     });
 
@@ -125,6 +139,7 @@ const getAllUsers = async (req, res) => {
         status: active ? 'active' : 'inactive',
         ownerDisabled: Boolean(ownerAuth?.disabled),
         signupMethod: auth?.provider === 'google' ? 'google' : 'email',
+        ...activityDates(a, signIns.get(String(a.email || '').toLowerCase())),
       };
     });
 

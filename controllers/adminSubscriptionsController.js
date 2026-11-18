@@ -4,6 +4,7 @@ const { sendNotification } = require('../services/notification.service');
 
 const Payment = require('../models/Payment');
 const { subscriptionSummary } = require('../services/subscriptionSummary');
+const { firebaseAccountTimes, joinedDate } = require('../services/firebaseAccountTimes');
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Emails may have been saved with capitals: match them whatever the case. */
@@ -37,9 +38,10 @@ const paymentsByEmail = async () => {
 // GET all users with subscription data (status worked out the same way the apps do)
 const getSubscriptions = async (req, res) => {
   try {
-    const [users, { payments, map }] = await Promise.all([
+    const [users, { payments, map }, fbTimes] = await Promise.all([
       User.find({}, '-fcmTokens').sort({ createdAt: -1 }).lean(),
       paymentsByEmail(),
+      firebaseAccountTimes(),
     ]);
     const now = Date.now();
 
@@ -53,7 +55,7 @@ const getSubscriptions = async (req, res) => {
         name: u.name || 'Unknown User',
         phone: u.phone || u.phoneNumber || '',
         role: u.role || 'Designer',
-        createdAt: u.createdAt,
+        createdAt: joinedDate(u.createdAt, fbTimes.get(String(u.email || '').toLowerCase())),
         // 'trial' | 'active' | 'trial_ended' | 'expired' | 'cancelled' | 'free'
         status: !u.subscriptionType && !sum.endDate ? 'free' : sum.status,
         isActive: sum.isActive,

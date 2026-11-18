@@ -44,6 +44,9 @@ const userSchema = new mongoose.Schema({
   // Push notification device tokens — one entry per logged-in device
   // What admins did to this account's subscription (grant trial, cancel...), newest last
   lastLoginAt:        { type: String },
+  // Unsubscribed from admin announcement emails (account emails like codes and receipts still go out)
+  emailOptOut:        { type: Boolean, default: false },
+  emailOptOutAt:      { type: String, default: null },
   adminLog: [
     {
       _id:     false,

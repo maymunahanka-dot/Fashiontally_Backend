@@ -48,6 +48,10 @@ startBillingReminderScheduler();
 const { startAppointmentReminderScheduler } = require('./services/appointmentReminders.service');
 startAppointmentReminderScheduler();
 
+// ── Admin email campaigns (sent in daily batches) ─────────────
+const { startAdminEmailScheduler } = require('./services/adminEmailQueue.service');
+startAdminEmailScheduler();
+
 // ── Firebase ↔ MongoDB two-way sync ──────────────────────────
 const { startSyncScheduler } = require('./services/syncScheduler.service');
 
@@ -144,6 +148,7 @@ app.use('/api/admin/support-tickets', adminSupportTicketRoutes);
 app.use('/api/cs-auth', customerServiceAuthRoutes);
 app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
 app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
+app.use('/api/admin/emails', require('./routes/adminEmail'));    // email campaigns (daily batches)
 app.use('/api/email-blast', emailBlastRoutes);               // GET /users  POST /send
 
 // ── Sync control & monitoring ─────────────────────────────
