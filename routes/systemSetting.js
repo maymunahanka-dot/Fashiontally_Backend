@@ -14,9 +14,9 @@ const {
 } = require('../controllers/systemSettingController');
 const { verifyAdminToken } = require('../middleware/adminAuth');
 
-router.post('/create', createSystemSetting);
-router.delete('/delete/:id', deleteSystemSetting);
-router.put('/edit/:id', editSystemSetting);
+router.post('/create', verifyAdminToken, createSystemSetting);
+router.delete('/delete/:id', verifyAdminToken, deleteSystemSetting);
+router.put('/edit/:id', verifyAdminToken, editSystemSetting);
 router.get('/get/:id', getSystemSetting);
 router.get('/all', getAllSystemSettings);
 

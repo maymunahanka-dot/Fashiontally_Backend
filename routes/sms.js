@@ -7,11 +7,14 @@ const {
   getSms, 
   getSmsByEmail 
 } = require('../controllers/smsController');
+const { verifyAdminToken } = require('../middleware/adminAuth');
 
-router.post('/create', createSms);
-router.delete('/delete/:id', deleteSms);
-router.put('/edit/:id', editSms);
-router.get('/get/:id', getSms);
-router.get('/get-by-email/:email', getSmsByEmail);
+// Admin only
+
+router.post('/create', verifyAdminToken, createSms);
+router.delete('/delete/:id', verifyAdminToken, deleteSms);
+router.put('/edit/:id', verifyAdminToken, editSms);
+router.get('/get/:id', verifyAdminToken, getSms);
+router.get('/get-by-email/:email', verifyAdminToken, getSmsByEmail);
 
 module.exports = router;

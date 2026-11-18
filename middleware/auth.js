@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const SubAdmin = require('../models/SubAdmin');
+const { isDisabled } = require('../services/disabledAccounts');
 
 const verifyToken = async (req, res, next) => {
   try {
@@ -19,6 +20,11 @@ const verifyToken = async (req, res, next) => {
       req.effectiveEmail = subAdmin.invitedBy.toLowerCase();
     } else {
       req.effectiveEmail = email;
+    }
+
+    // Deactivated by an admin: the person, or the business they work for
+    if (await isDisabled(email, req.effectiveEmail)) {
+      return res.status(403).json({ success: false, error: 'Account has been disabled', code: 'ACCOUNT_DISABLED' });
     }
 
     req.user = decoded;

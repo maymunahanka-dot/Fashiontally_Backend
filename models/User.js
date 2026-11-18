@@ -42,6 +42,18 @@ const userSchema = new mongoose.Schema({
   transactionId:      { type: String, default: '' },
 
   // Push notification device tokens — one entry per logged-in device
+  // What admins did to this account's subscription (grant trial, cancel...), newest last
+  lastLoginAt:        { type: String },
+  adminLog: [
+    {
+      _id:     false,
+      action:  { type: String },
+      details: { type: String, default: '' },
+      note:    { type: String, default: '' },
+      admin:   { type: String, default: '' },
+      at:      { type: String, default: () => new Date().toISOString() },
+    },
+  ],
   fcmTokens: [
     {
       token:      { type: String, required: true },   // FCM registration token

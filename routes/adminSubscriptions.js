@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getSubscriptions,
+  getSubscriptions, getSubscriptionHistory,
   grantTrial,
   cancelSubscription,
   recoverPayment,
@@ -9,6 +9,7 @@ const {
 const { verifyAdminToken } = require('../middleware/adminAuth');
 
 router.get('/list', verifyAdminToken, getSubscriptions);
+router.get('/history', verifyAdminToken, getSubscriptionHistory);
 router.post('/grant-trial', verifyAdminToken, grantTrial);
 router.post('/cancel', verifyAdminToken, cancelSubscription);
 router.post('/recover-payment', verifyAdminToken, recoverPayment);

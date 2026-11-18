@@ -434,7 +434,22 @@ const sendBillingReminderEmail = (kind, email, { name, planType, endDate, daysLe
   }));
 };
 
+/** A message an admin writes to a user from the admin panel (plain text, escaped). */
+const sendAdminMessageEmail = (email, { name, subject, message }) =>
+  sendEmail('admin-message', email, String(subject || 'A message from FashionTally').slice(0, 150), emailLayout({
+    heading: escapeHtml(String(subject || 'A message from FashionTally').slice(0, 150)),
+    paragraphs: [
+      `Hi ${firstName(name, email)},`,
+      ...String(message || '')
+        .split(/\n{2,}/)
+        .map((para) => escapeHtml(para.trim()).replace(/\n/g, '<br/>'))
+        .filter(Boolean),
+    ],
+    button: { text: 'Open FashionTally', url: APP_URL() },
+  }));
+
 module.exports = {
+  sendAdminMessageEmail,
   sendEmailOTP,
   sendSubscriptionReceipt,
   sendWelcomeEmail,

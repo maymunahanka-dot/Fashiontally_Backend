@@ -11,6 +11,9 @@ const subAdminSchema = new mongoose.Schema({
   permissions:{ type: mongoose.Schema.Types.Mixed, default: {} },
   status:     { type: String, default: 'active' },
   language:   { type: String, enum: ['en', 'fr'], default: 'en' }, // team member's own app language
+  lastLoginAt: { type: String },
+  // What admins did to this account (deactivate, notes...), newest last
+  adminLog:   [{ _id: false, action: String, details: String, note: String, admin: String, at: String }],
   createdAt:  { type: String, default: () => new Date().toISOString() },
   updatedAt:  { type: String, default: () => new Date().toISOString() },
   password:   { type: String, default: '' },       // old app stores plain password for display

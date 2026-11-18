@@ -124,7 +124,7 @@ const googleAuth = async (req, res) => {
 
     // ── Upsert AuthUser ────────────────────────────────────────
     console.log('[googleAuth] Upserting AuthUser');
-    await AuthUser.findOneAndUpdate(
+    const authRecord = await AuthUser.findOneAndUpdate(
       { email: normalizedEmail },
       {
         $set: {
@@ -148,6 +148,10 @@ const googleAuth = async (req, res) => {
       { upsert: true, new: true }
     );
     console.log('[googleAuth] AuthUser upserted ✅');
+
+    if (authRecord?.disabled) {
+      return res.status(403).json({ success: false, error: 'Account has been disabled' });
+    }
 
     // ── Check if new user ──────────────────────────────────────
     const existingUser = await User.findOne({ email: normalizedEmail });
@@ -207,6 +211,7 @@ const googleAuth = async (req, res) => {
     );
 
     console.log('[googleAuth] Success ✅');
+    if (mongoUser) User.updateOne({ _id: mongoUser._id }, { $set: { lastLoginAt: new Date().toISOString() } }).catch(() => {});
     res.json({ success: true, token, isNewUser, user: mongoUser });
 
   } catch (error) {

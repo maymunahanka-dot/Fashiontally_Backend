@@ -96,6 +96,7 @@ const loginUser = async (req, res) => {
         { expiresIn: '7d' }
       );
       console.log('[login] Regular user — success ✅');
+      User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date().toISOString() } }).catch(() => {});
       // Security alert to the owner's other devices. The device signing in now
       // isn't registered yet (apps remove their token on logout), so it's excluded.
       // Fire-and-forget — does not delay the login response
@@ -122,11 +123,17 @@ const loginUser = async (req, res) => {
         return res.status(404).json({ success: false, error: 'Owner account not found' });
       }
 
+      const ownerAuth = await AuthUser.findOne({ email: ownerEmail }, { disabled: 1 }).lean();
+      if (ownerAuth?.disabled || subAdmin.status === 'inactive') {
+        return res.status(403).json({ success: false, error: 'Account has been disabled' });
+      }
+
       const token = jwt.sign(
         { uid: authUser.firebaseUid || authUser._id.toString(), email: normalizedEmail },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
+      SubAdmin.updateOne({ _id: subAdmin._id }, { $set: { lastLoginAt: new Date().toISOString() } }).catch(() => {});
 
       const subAdminData = {
         ...subAdmin.toObject(),
