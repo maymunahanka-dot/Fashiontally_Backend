@@ -7,7 +7,7 @@
 
 const axios = require('axios');
 
-async function sendBrevoEmail({ to, subject, html }) {
+async function sendBrevoEmail({ to, subject, html, text }) {
   const res = await axios.post(
     'https://api.brevo.com/v3/smtp/email',
     {
@@ -15,6 +15,8 @@ async function sendBrevoEmail({ to, subject, html }) {
       to:       [{ email: to }],
       subject,
       htmlContent: html,
+      // A plain-text copy alongside the HTML makes spam filters trust the email more
+      ...(text ? { textContent: text } : {}),
     },
     {
       headers: {
