@@ -228,6 +228,9 @@ const APP_URL          = () => process.env.FRONTEND_APP_URL || 'https://app.fash
 const SITE_URL         = () => process.env.FRONTEND_URL || 'https://www.fashiontally.com';
 const SUBSCRIPTION_URL = () => `${SITE_URL()}/subscription`;
 const SUPPORT_EMAIL    = 'support@fashiontally.com';
+// Demo video shown in the welcome email. The thumbnail is served from the website's public/email folder.
+const DEMO_VIDEO_URL   = 'https://www.youtube.com/watch?v=f4s-UPk7pq0';
+const DEMO_VIDEO_THUMB = () => `${SITE_URL()}/email/welcome-demo-video.jpg`;
 
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -281,23 +284,46 @@ const sendEmail = async (tag, to, subject, html, text) => {
   }
 };
 
+const welcomeText = (name) => [
+  `Welcome, ${String(name || '').trim() || 'there'}!`,
+  '',
+  'Your FashionTally account is ready. Your free trial has started — explore everything the platform has to offer.',
+  '',
+  "Here's what you can do right away:",
+  '- Add your clients and track their measurements',
+  '- Create and manage orders',
+  '- Send invoices and track payments',
+  '- Schedule appointments',
+  '- Manage your inventory',
+  '',
+  `Watch the demo video (15 min): ${DEMO_VIDEO_URL}`,
+  '',
+  `Get started: ${APP_URL()}`,
+  '',
+  "If you have any questions, reply to this email — we're happy to help.",
+].join('\n');
+
+// Same dark design as the custom emails admins send (brandLayout)
 const sendWelcomeEmail = (email, name) =>
-  sendEmail('welcome', email, `Welcome to FashionTally, ${String(name || '').trim().split(' ')[0] || 'there'}! 🎉`, emailLayout({
-    heading: `Welcome, ${escapeHtml(String(name || '').trim()) || 'there'}! 👋`,
+  sendEmail('welcome', email, `Welcome to FashionTally, ${String(name || '').trim().split(' ')[0] || 'there'}! 🎉`, brandLayout({
+    label: 'Welcome',
+    heading: 'Welcome to FashionTally 👋',
     paragraphs: [
-      `Your FashionTally account is ready. Your <strong>free trial</strong> has started — explore everything the platform has to offer.`,
-      `Here's what you can do right away:`,
-      `<span style="display: block; color: #374151; line-height: 2;">
-        • Add your clients and track their measurements<br/>
-        • Create and manage orders<br/>
-        • Send invoices and track payments<br/>
-        • Schedule appointments<br/>
-        • Manage your inventory
-      </span>`,
+      `Hi ${firstName(name, email)},`,
+      `Your FashionTally account is ready. Your <strong style="color:#f3f3f1;">free trial</strong> has started — explore everything the platform has to offer.`,
+      `Here's what you can do right away:<br/>
+        <span style="display:block;margin-top:6px;line-height:2;color:#f3f3f1;">
+        <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Add your clients and track their measurements<br/>
+        <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Create and manage orders<br/>
+        <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Send invoices and track payments<br/>
+        <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Schedule appointments<br/>
+        <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Manage your inventory
+        </span>`,
+      `New here? Watch the demo video to see how it all works.`,
     ],
+    video: { url: DEMO_VIDEO_URL, image: DEMO_VIDEO_THUMB(), caption: 'Watch the demo video (15 min)' },
     button: { text: 'Get Started', url: APP_URL() },
-    note: `If you have any questions, reply to this email — we're happy to help.`,
-  }));
+  }), welcomeText(name));
 
 const sendPasswordChangedEmail = (email, name) =>
   sendEmail('password-changed', email, 'Your FashionTally password was changed', emailLayout({
@@ -440,8 +466,10 @@ const sendBillingReminderEmail = (kind, email, { name, planType, endDate, daysLe
  * Tables + inline styles so it holds up in Gmail, Outlook and Apple Mail; the glow is a gradient
  * over a plain dark colour for clients that drop gradients.
  * `paragraphs` are trusted HTML strings: escape user data before passing it in.
+ * `video` (optional): { url, image, caption }, a clickable thumbnail shown before the button
+ * (email apps can't play video inline, so it links out).
  */
-const brandLayout = ({ label, heading, paragraphs, button }) => {
+const brandLayout = ({ label, heading, paragraphs, video, button }) => {
   const font = `Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
   const site = SITE_URL();
   const siteHost = site.replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -477,6 +505,18 @@ const brandLayout = ({ label, heading, paragraphs, button }) => {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr><td style="padding:34px 36px 38px 36px;">
               ${paragraphs.map((p, i) => `<p style="margin:0 0 16px 0;font-size:${i === 0 ? '16px' : '15px'};line-height:1.75;color:${i === 0 ? '#f3f3f1' : 'rgba(243,243,241,0.72)'};${i === 0 ? 'font-weight:600;' : ''}">${p}</p>`).join('')}
+              ${video ? `
+              <!-- Video: thumbnail with a play button baked in, linking to the video -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 0 0;">
+                <tr><td style="border-radius:14px;border:1px solid rgba(255,255,255,0.12);overflow:hidden;line-height:0;font-size:0;">
+                  <a href="${video.url}" style="display:block;text-decoration:none;">
+                    <img src="${video.image}" width="508" alt="${video.caption}" style="display:block;width:100%;max-width:508px;height:auto;border:0;border-radius:14px;" />
+                  </a>
+                </td></tr>
+                <tr><td style="padding-top:12px;font-size:14px;line-height:1.5;">
+                  <a href="${video.url}" style="color:#2fd3c3;font-weight:600;text-decoration:none;">&#9654;&nbsp; ${video.caption}</a>
+                </td></tr>
+              </table>` : ''}
               ${button ? `
               <!-- Button: teal-to-mint pill with a soft glow; solid teal where gradients aren't supported -->
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:32px 0 0 0;">
