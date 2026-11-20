@@ -228,9 +228,9 @@ const APP_URL          = () => process.env.FRONTEND_APP_URL || 'https://app.fash
 const SITE_URL         = () => process.env.FRONTEND_URL || 'https://www.fashiontally.com';
 const SUBSCRIPTION_URL = () => `${SITE_URL()}/subscription`;
 const SUPPORT_EMAIL    = 'support@fashiontally.com';
-// Demo video shown in the welcome email. The thumbnail is served from the website's public/email folder.
+// Demo video shown in the welcome email. The thumbnail ships with this backend (public/email, served at /email).
 const DEMO_VIDEO_URL   = 'https://www.youtube.com/watch?v=f4s-UPk7pq0';
-const DEMO_VIDEO_THUMB = () => `${SITE_URL()}/email/welcome-demo-video.jpg`;
+const DEMO_VIDEO_THUMB = () => `${(process.env.BACKEND_URL || 'https://backend.fashiontally.com').replace(/\/+$/, '')}/email/welcome-demo-video.jpg`;
 
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

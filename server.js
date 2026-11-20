@@ -22,6 +22,9 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// Images used inside emails (e.g. the welcome email's demo-video thumbnail), served from public/email
+app.use('/email', express.static(require('path').join(__dirname, 'public', 'email'), { maxAge: '7d' }));
+
 // ── Swagger ───────────────────────────────────────────────────
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   swaggerOptions: { persistAuthorization: true },
