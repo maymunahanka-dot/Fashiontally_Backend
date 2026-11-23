@@ -468,12 +468,34 @@ const sendBillingReminderEmail = (kind, email, { name, planType, endDate, daysLe
  * `paragraphs` are trusted HTML strings: escape user data before passing it in.
  * `video` (optional): { url, image, caption }, a clickable thumbnail shown before the button
  * (email apps can't play video inline, so it links out).
+ * Optional for automated emails: `lang` ('en' | 'fr') for the fixed texts, `preheader` (the grey
+ * preview line inboxes show after the subject), `signOff` (HTML after the button) and
+ * `unsubscribeUrl` (adds an unsubscribe link to the footer).
  */
-const brandLayout = ({ label, heading, paragraphs, video, button }) => {
+const LAYOUT_TEXT = {
+  en: {
+    help: 'Need a hand? Our team is happy to help on',
+    footer: "You're receiving this as part of the FashionTally community: the workspace for fashion businesses.",
+    website: 'Website',
+    openApp: 'Open the app',
+    unsubscribe: 'Unsubscribe from these emails',
+  },
+  fr: {
+    help: "Besoin d'aide ? Notre équipe vous répond sur",
+    footer: 'Vous recevez cet e-mail en tant que membre de la communauté FashionTally : l’espace de travail des entreprises de mode.',
+    website: 'Site web',
+    openApp: "Ouvrir l'application",
+    unsubscribe: 'Se désabonner de ces e-mails',
+  },
+};
+
+const brandLayout = ({ label, heading, paragraphs, video, button, lang = 'en', preheader, signOff, unsubscribeUrl, appUrl }) => {
   const font = `Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
   const site = SITE_URL();
   const siteHost = site.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const t = LAYOUT_TEXT[lang] || LAYOUT_TEXT.en;
   return `
+${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;font-size:1px;line-height:1px;color:#050505;">${preheader}&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;</div>` : ''}
 <div style="margin:0;padding:0;background:#050505;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#050505" style="background:#050505;">
     <tr><td align="center" style="padding:28px 12px 36px 12px;">
@@ -526,13 +548,14 @@ const brandLayout = ({ label, heading, paragraphs, video, button }) => {
                   </a>
                 </td></tr>
               </table>` : ''}
+              ${signOff ? `<div style="margin:34px 0 0 0;font-size:15px;line-height:1.6;color:rgba(243,243,241,0.72);">${signOff}</div>` : ''}
             </td></tr>
           </table>
 
           <!-- Help strip -->
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr><td bgcolor="#111312" style="padding:18px 36px;background:#111312;border-top:1px solid rgba(255,255,255,0.07);font-size:13px;line-height:1.6;color:rgba(243,243,241,0.6);border-radius:0 0 20px 20px;">
-              Need a hand? Our team is happy to help on <a href="${site}/contact" style="color:#2fd3c3;font-weight:600;text-decoration:none;">${siteHost}/contact</a>
+              ${t.help} <a href="${site}/contact" style="color:#2fd3c3;font-weight:600;text-decoration:none;">${siteHost}/contact</a>
             </td></tr>
           </table>
 
@@ -540,10 +563,11 @@ const brandLayout = ({ label, heading, paragraphs, video, button }) => {
 
         <!-- Footer -->
         <tr><td align="center" style="padding:22px 12px 0 12px;font-size:12px;line-height:1.7;color:#6f6f6c;">
-          You're receiving this as part of the FashionTally community: the workspace for fashion businesses.<br/>
-          <a href="${site}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Website</a>
+          ${t.footer}<br/>
+          <a href="${site}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">${t.website}</a>
           &nbsp;·&nbsp;
-          <a href="${APP_URL()}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">Open the app</a>
+          <a href="${appUrl || APP_URL()}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">${t.openApp}</a>
+          ${unsubscribeUrl ? `&nbsp;·&nbsp;<a href="${unsubscribeUrl}" style="color:#a6a6a2;text-decoration:underline;">${t.unsubscribe}</a>` : ''}
           <br/>© ${new Date().getFullYear()} FashionTally
         </td></tr>
       </table>
@@ -585,6 +609,10 @@ const sendAdminMessageEmail = (email, options = {}) => {
 };
 
 module.exports = {
+  brandLayout,
+  escapeHtml,
+  SITE_URL,
+  APP_URL,
   sendAdminMessageEmail,
   buildAdminMessageEmail,
   sendEmailOTP,

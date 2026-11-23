@@ -2,8 +2,10 @@
  * services/adminEmailQueue.service.js
  *
  * Sends admin email campaigns in daily batches. Brevo's free plan allows 300 emails a day for
- * everything the backend sends (sign-in codes, receipts, resets...), so admin emails get their
- * own smaller allowance (ADMIN_EMAIL_DAILY_LIMIT, default 200) and the rest stays free.
+ * everything the backend sends, split three ways: admin campaigns (ADMIN_EMAIL_DAILY_LIMIT,
+ * default 100), automated emails (AUTOMATION_EMAIL_DAILY_LIMIT, default 100, see
+ * services/emailAutomation) and about 100 kept free for account emails (sign-in codes,
+ * receipts, resets, plan reminders).
  *
  * - The count lives in MongoDB (one row per Lagos day), so several servers share it.
  * - Each recipient is claimed atomically before sending, so two servers never email the same person.
@@ -24,7 +26,7 @@ const MAX_FAILS_IN_A_ROW = 5;
 
 const dailyLimit = () => {
   const n = parseInt(process.env.ADMIN_EMAIL_DAILY_LIMIT, 10);
-  return Number.isFinite(n) && n > 0 ? n : 200;
+  return Number.isFinite(n) && n > 0 ? n : 100;
 };
 
 const sendingEnabled = () => {

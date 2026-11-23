@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const SubAdmin = require('../models/SubAdmin');
 const { isDisabled } = require('../services/disabledAccounts');
+const { touchLastActive } = require('../services/lastActive');
 
 const verifyToken = async (req, res, next) => {
   try {
@@ -28,6 +29,7 @@ const verifyToken = async (req, res, next) => {
     }
 
     req.user = decoded;
+    touchLastActive(req.effectiveEmail);
     next();
   } catch (error) {
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });

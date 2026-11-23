@@ -44,6 +44,9 @@ const userSchema = new mongoose.Schema({
   // Push notification device tokens — one entry per logged-in device
   // What admins did to this account's subscription (grant trial, cancel...), newest last
   lastLoginAt:        { type: String },
+  // Last time the account (owner or a team member) made a signed-in request to the backend.
+  // Updated at most once an hour; used by the automated "we haven't seen you" emails.
+  lastActiveAt:       { type: String },
   // Unsubscribed from admin announcement emails (account emails like codes and receipts still go out)
   emailOptOut:        { type: Boolean, default: false },
   emailOptOutAt:      { type: String, default: null },
