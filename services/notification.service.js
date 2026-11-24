@@ -25,13 +25,14 @@ const WEB_PATHS = {
   order_due:              '/dashboard/orders',
   order_overdue:          '/dashboard/orders',
   invoice_overdue:        '/dashboard/invoice',
+  referral:               '/dashboard/settings?panel=referral',
 };
 
 /**
  * Notification types that are also saved for the inbox (web notification panel and
  * the app's notification screen), so they can be seen later even without a phone.
  */
-const INBOX_TYPES = new Set(['payment_success', 'plan_ending', 'plan_expired', 'subscription_cancelled']);
+const INBOX_TYPES = new Set(['payment_success', 'plan_ending', 'plan_expired', 'subscription_cancelled', 'referral']);
 
 /** Saves an inbox copy. Never throws: a failed save must not stop the push. */
 const saveToInbox = async (user, title, body, data) => {

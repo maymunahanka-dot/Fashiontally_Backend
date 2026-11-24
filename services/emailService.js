@@ -610,6 +610,7 @@ const sendAdminMessageEmail = (email, options = {}) => {
 
 module.exports = {
   brandLayout,
+  sendEmail,
   escapeHtml,
   SITE_URL,
   APP_URL,

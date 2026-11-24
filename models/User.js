@@ -47,6 +47,8 @@ const userSchema = new mongoose.Schema({
   // Last time the account (owner or a team member) made a signed-in request to the backend.
   // Updated at most once an hour; used by the automated "we haven't seen you" emails.
   lastActiveAt:       { type: String },
+  // Refer & Earn: code entered at sign-up (set once, never changed)
+  referredByCode:     { type: String, default: '' },
   // Unsubscribed from admin announcement emails (account emails like codes and receipts still go out)
   emailOptOut:        { type: Boolean, default: false },
   emailOptOutAt:      { type: String, default: null },

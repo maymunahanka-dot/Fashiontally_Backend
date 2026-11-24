@@ -199,6 +199,14 @@ const googleAuth = async (req, res) => {
 
       // Same welcome email as email/password signup (non-blocking)
       sendWelcomeEmail(normalizedEmail, userName);
+      // Refer & Earn: code from the sign-up page (new accounts only)
+      if (req.body?.referralCode) {
+        require('../services/referral.service').attachAtSignup({
+          email: normalizedEmail, name: userName, code: req.body.referralCode,
+          ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim(),
+          device: String(req.headers['user-agent'] || ''), source: 'google',
+        }).then((r) => console.log(`[googleAuth] referral ${req.body.referralCode}: ${r.ok ? 'linked' : r.reason}`));
+      }
     }
 
     // ── Sign JWT ───────────────────────────────────────────────

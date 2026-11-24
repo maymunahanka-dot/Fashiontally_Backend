@@ -304,6 +304,8 @@ const activateFromVerifiedTransaction = async (tx, options = {}) => {
   );
 
   sendSubscriptionReceipt(user.email, payment.toObject(), updatedUser || user).catch(() => {});
+  // Refer & Earn: the first payment of a referred customer earns the referrer a reward
+  require('./referral.service').onPaymentSuccess(updatedUser || user, payment.toObject()).catch(() => {});
   pushPaymentSuccess(updatedUser || user, payment);
 
   return {

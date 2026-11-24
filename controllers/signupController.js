@@ -26,7 +26,7 @@ const { trialEndDate: getTrialEndDate } = require('../config/trial');
 
 const signupUser = async (req, res) => {
   console.log('[signup] ── SIGNUP ATTEMPT ───────────────────────────');
-  const { name, email, phone, password, country, businessName, category, emailVerificationToken } = req.body || {};
+  const { name, email, phone, password, country, businessName, category, emailVerificationToken, referralCode } = req.body || {};
 
   // ── Validation ──────────────────────────────────────────────
   const errors = {};
@@ -191,6 +191,16 @@ const signupUser = async (req, res) => {
 
     // ── Step 9: Welcome email via Brevo (non-blocking) ───────
     sendWelcomeEmail(normalizedEmail, name);
+
+    // Refer & Earn: link the new account to whoever referred them (never blocks sign-up)
+    if (referralCode) {
+      require('../services/referral.service').attachAtSignup({
+        email: normalizedEmail, name, phone, code: referralCode,
+        ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim(),
+        device: String(req.headers['user-agent'] || ''),
+        source: String(req.headers['user-agent'] || '').includes('okhttp') || req.body?.platform === 'app' ? 'app' : 'web',
+      }).then((r) => console.log(`[signup] referral ${referralCode}: ${r.ok ? 'linked' : r.reason}`));
+    }
 
   } catch (error) {
     console.error('[signup] Error:', error.message, error.stack);

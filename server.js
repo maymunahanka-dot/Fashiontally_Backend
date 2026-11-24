@@ -59,6 +59,10 @@ startAdminEmailScheduler();
 const { startEmailAutomationScheduler } = require('./services/emailAutomation');
 startEmailAutomationScheduler();
 
+// ── Refer & Earn: release rewards after their hold period ─────
+const { startReferralScheduler } = require('./services/referral.service');
+startReferralScheduler();
+
 // ── Firebase ↔ MongoDB two-way sync ──────────────────────────
 const { startSyncScheduler } = require('./services/syncScheduler.service');
 
@@ -158,6 +162,9 @@ app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET
 app.use('/api/admin/emails', require('./routes/adminEmail'));    // email campaigns (daily batches)
 app.use('/api/admin/email-automation', require('./routes/adminEmailAutomation')); // automated emails
 app.use('/api/email/unsubscribe', require('./routes/emailUnsubscribe'));          // unsubscribe link in emails
+app.use('/api/refab', require('./routes/refab'));
+app.use('/api/referral', require('./routes/referral').user);                    // Refer & Earn
+app.use('/api/admin/referrals', require('./routes/referral').admin);            // Refer & Earn admin                                  // Fashion Refab (leftover fabric marketplace)
 app.use('/api/email-blast', emailBlastRoutes);               // GET /users  POST /send
 
 // ── Sync control & monitoring ─────────────────────────────
