@@ -4,9 +4,14 @@
  *   1. Every user gets a code (FT-XXXXXX), created the first time it's needed.
  *   2. A new customer enters the code at sign-up (the web link ?ref=CODE fills it in).
  *      attachAtSignup() links them to the referrer, once and for good.
- *   3. Their first successful subscription payment earns the referrer a reward by plan
- *      (Starter ₦1,000 · Growth ₦2,000 · Professional ₦3,000, monthly or yearly), held
- *      `holdDays` (14) before it can be paid out. A payment can only ever earn one reward.
+ *   3. The referral qualifies when the customer makes TWO monthly subscription payments in a row
+ *      (the 2nd within `secondPaymentWindowDays` of the 1st), or one yearly payment
+ *      (`yearlyQualifies`). The reward is by plan (Starter ₦1,000 · Growth ₦2,000 ·
+ *      Professional ₦3,000), held `holdDays` (14) before it can be paid out.
+ *      A payment can only ever earn one reward.
+ *   3b. Unusual activity (same network or device, too many sign-ups for one referrer) is flagged
+ *      for admin review, never rejected automatically. A flagged reward waits until an admin
+ *      approves it; admins can also put a referral on hold or reject it.
  *   4. Once eligible rewards reach `minPayout` (₦5,000), the user adds bank details and
  *      requests a payout; admins pay it by hand and record the transfer reference.
  *
@@ -97,7 +102,7 @@ const recordClick = async (code, ip, device) => {
  * Links a brand-new account to the referrer behind `code`. Never throws (sign-up must not fail
  * because of a referral). Returns { ok, reason }.
  */
-const attachAtSignup = async ({ email, name, phone, code, ip = '', device = '', source = 'web' }) => {
+const attachAtSignup = async ({ email, name, phone, code, ip = '', device = '', deviceId = '', source = 'web' }) => {
   try {
     const c = normCode(code);
     if (!c) return { ok: false, reason: 'no code' };
@@ -118,11 +123,27 @@ const attachAtSignup = async ({ email, name, phone, code, ip = '', device = '', 
       return { ok: false, reason: 'existing customer' };
     }
 
+    // Flags for admin review (never an automatic rejection: shared networks and devices happen)
     const flags = [];
     if (ip) {
       const sameNetwork = await Referral.countDocuments({ referrerEmail: account.email, signupIp: ip, createdAt: { $gte: new Date(Date.now() - 7 * DAY) } });
       if (sameNetwork >= 2) flags.push(`${sameNetwork + 1} sign-ups from the same network this week`);
     }
+    const devId = String(deviceId || '').trim().slice(0, 100);
+    if (devId) {
+      const referrerUser = await User.findOne({ email: account.email }, 'signupDeviceId').lean();
+      if (referrerUser?.signupDeviceId && referrerUser.signupDeviceId === devId) flags.push('Signed up on the same device as the referrer');
+      const sameDevice = await Referral.countDocuments({ deviceId: devId, referredEmail: { $ne: referred } });
+      if (sameDevice > 0) flags.push(`Same device as ${sameDevice} other referred sign-up${sameDevice === 1 ? '' : 's'}`);
+    }
+    const [lastDay, lastMonth] = await Promise.all([
+      Referral.countDocuments({ referrerEmail: account.email, createdAt: { $gte: new Date(Date.now() - DAY) } }),
+      Referral.countDocuments({ referrerEmail: account.email, createdAt: { $gte: new Date(Date.now() - 30 * DAY) } }),
+    ]);
+    const volumeFlags = [];
+    if (lastDay + 1 >= (settings.flagSignupsPerDay ?? 5)) volumeFlags.push(`${lastDay + 1} referred sign-ups in 24 hours`);
+    else if (lastMonth + 1 >= (settings.flagSignupsPerMonth ?? 20)) volumeFlags.push(`${lastMonth + 1} referred sign-ups in 30 days`);
+    flags.push(...volumeFlags);
 
     await Referral.create({
       referrerEmail: account.email,
@@ -132,9 +153,17 @@ const attachAtSignup = async ({ email, name, phone, code, ip = '', device = '', 
       source,
       signupIp: ip,
       signupDevice: String(device).slice(0, 200),
+      deviceId: devId,
       flags,
-      audit: [{ by: 'system', action: 'registered', note: `Signed up with code ${c} (${source})` }],
+      review: flags.length ? 'needs_review' : 'none',
+      audit: [
+        { by: 'system', action: 'registered', note: `Signed up with code ${c} (${source})` },
+        ...(flags.length ? [{ by: 'system', action: 'flagged', note: flags.join('; ') }] : []),
+      ],
     });
+    if (volumeFlags.length) {
+      await ReferralAccount.updateOne({ _id: account._id }, { $addToSet: { flags: { $each: volumeFlags } } }).catch(() => {});
+    }
     await User.updateOne({ email: referred }, { $set: { referredByCode: c } }).catch(() => {});
     notify(account.email, 'signup', { name: String(name || '').trim().split(' ')[0] || 'Someone' });
     return { ok: true };
@@ -147,51 +176,113 @@ const attachAtSignup = async ({ email, name, phone, code, ip = '', device = '', 
 
 // ── Payments ──────────────────────────────────────────────────────────────
 
+const paymentDate = (payment) => new Date(payment.paidAt || payment.createdAt || Date.now());
+const isYearly = (payment) => String(payment.billingCycle || '').toLowerCase() === 'yearly';
+const isUnderReview = (r) => ['needs_review', 'on_hold'].includes(r.review);
+
+/** Marks the referral qualified by `payment` and starts the hold period for the reward */
+const qualify = async (referral, payment, settings, why) => {
+  const plan = String(payment.plantype || '').toUpperCase() || referral.firstPlan;
+  const reward = rewardFor(settings, plan);
+  if (!reward) return null;
+  const hold = settings.holdDays ?? 14;
+  const updated = await Referral.findOneAndUpdate(
+    { _id: referral._id, status: referral.status },
+    {
+      $set: {
+        status: 'paid',
+        plan,
+        billingCycle: payment.billingCycle || '',
+        amountPaid: Number(payment.planPrice) || 0,
+        paymentId: String(payment.id),
+        paidAt: paymentDate(payment),
+        reward,
+        rewardStatus: 'pending',
+        eligibleAt: new Date(Date.now() + hold * DAY),
+      },
+      $push: { audit: { by: 'system', action: 'qualified', note: `${why}. ${plan} payment ${payment.id}: ₦${reward} pending ${hold} days${isUnderReview(referral) ? ' (waiting for admin review)' : ''}` } },
+    },
+    { new: true }
+  ).lean();
+  if (updated) {
+    notify(updated.referrerEmail, isUnderReview(updated) ? 'reward_review' : 'reward', {
+      name: updated.referredName.split(' ')[0] || 'Your referral', reward, plan, holdDays: hold,
+    });
+  }
+  return updated;
+};
+
+/** Records `payment` as payment 1 of 2 (also used to start the count again after a gap or refund) */
+const recordFirstPayment = async (referral, payment, note) => {
+  const updated = await Referral.findOneAndUpdate(
+    { _id: referral._id, status: referral.status, firstPaymentId: referral.firstPaymentId ?? null },
+    {
+      $set: {
+        status: 'first_payment',
+        firstPaymentId: String(payment.id),
+        firstPaidAt: paymentDate(payment),
+        firstPlan: String(payment.plantype || '').toUpperCase(),
+        firstBillingCycle: payment.billingCycle || 'monthly',
+        plan: String(payment.plantype || '').toUpperCase(),
+      },
+      $push: { audit: { by: 'system', action: 'first_payment', note } },
+    },
+    { new: true }
+  ).lean();
+  if (updated && referral.status === 'registered') {
+    notify(updated.referrerEmail, 'first_payment', { name: updated.referredName.split(' ')[0] || 'Your referral' });
+  }
+  return updated;
+};
+
 /**
- * Called after a subscription payment is verified (both gateways). Records the reward for the
- * customer's first payment only. Safe to call twice for the same payment.
+ * Called after a subscription payment is verified (both gateways). Safe to call twice for the
+ * same payment. The referral qualifies on the customer's 2nd monthly payment in a row (or a
+ * yearly payment); the 1st payment only moves it to "first_payment".
  */
 const onPaymentSuccess = async (user, payment) => {
   try {
     if (!payment || payment.status !== 'successful') return;
     const referredEmail = normEmail(user?.email || payment.email);
-    const referral = await Referral.findOne({ referredEmail, status: 'registered' }).lean();
-    if (!referral) return;
+    const referral = await Referral.findOne({ referredEmail, status: { $in: ['registered', 'first_payment'] } }).lean();
+    if (!referral || referral.review === 'rejected') return;
+    const settings = await getSettings();
+    const pid = String(payment.id);
+    const plan = String(payment.plantype || user?.planType || '').toUpperCase();
+    payment = { ...payment, plantype: plan };
 
-    // Only the first successful payment counts (renewals don't earn)
-    const paidBefore = await Payment.countDocuments({ email: payment.email, status: 'successful', id: { $ne: payment.id } });
-    if (paidBefore > 0) {
-      await Referral.updateOne(
-        { _id: referral._id, status: 'registered' },
-        { $set: { status: 'not_eligible', notEligibleReason: 'Not their first payment' }, $push: { audit: { by: 'system', action: 'not_eligible', note: 'Customer had paid before' } } }
-      );
+    if (referral.status === 'registered') {
+      // Existing customers don't qualify: the customer must not have paid before
+      const paidBefore = await Payment.countDocuments({ email: payment.email, status: 'successful', id: { $ne: payment.id } });
+      if (paidBefore > 0) {
+        await Referral.updateOne(
+          { _id: referral._id, status: 'registered' },
+          { $set: { status: 'not_eligible', notEligibleReason: 'Not their first payment' }, $push: { audit: { by: 'system', action: 'not_eligible', note: 'Customer had paid before' } } }
+        );
+        return;
+      }
+      if (isYearly(payment) && settings.yearlyQualifies !== false) {
+        await qualify(referral, payment, settings, 'Yearly payment');
+        return;
+      }
+      await recordFirstPayment(referral, payment, `Payment 1 of 2: ${plan} ${payment.billingCycle || 'monthly'} (${pid})`);
       return;
     }
 
-    const settings = await getSettings();
-    const plan = String(payment.plantype || user?.planType || '').toUpperCase();
-    const reward = rewardFor(settings, plan);
-    if (!reward) return;
-
-    const updated = await Referral.findOneAndUpdate(
-      { _id: referral._id, status: 'registered' },
-      {
-        $set: {
-          status: 'paid',
-          plan,
-          billingCycle: payment.billingCycle || '',
-          amountPaid: Number(payment.planPrice) || 0,
-          paymentId: String(payment.id),
-          paidAt: new Date(payment.paidAt || Date.now()),
-          reward,
-          rewardStatus: 'pending',
-          eligibleAt: new Date(Date.now() + (settings.holdDays ?? 14) * DAY),
-        },
-        $push: { audit: { by: 'system', action: 'reward_recorded', note: `${plan} payment ${payment.id}: ₦${reward} pending ${settings.holdDays ?? 14} days` } },
-      },
-      { new: true }
-    ).lean();
-    if (updated) notify(updated.referrerEmail, 'reward', { name: updated.referredName.split(' ')[0] || 'Your referral', reward, plan, holdDays: settings.holdDays ?? 14 });
+    // status === 'first_payment'
+    if (pid === referral.firstPaymentId) return; // same payment reported twice
+    const first = await Payment.findOne({ id: referral.firstPaymentId }).lean();
+    const windowDays = settings.secondPaymentWindowDays ?? 45;
+    const gapDays = (paymentDate(payment) - new Date(referral.firstPaidAt)) / DAY;
+    if (!first || first.status !== 'successful') {
+      await recordFirstPayment(referral, payment, `Payment 1 was refunded or reversed, so this payment (${pid}) counts as the new payment 1 of 2`);
+      return;
+    }
+    if (gapDays > windowDays) {
+      await recordFirstPayment(referral, payment, `${Math.round(gapDays)} days since payment 1 (more than ${windowDays}), so this payment (${pid}) counts as the new payment 1 of 2`);
+      return;
+    }
+    await qualify(referral, payment, settings, `Payment 2 of 2 (${Math.round(gapDays)} days after payment 1)`);
   } catch (error) {
     if (error.code === 11000) return; // this payment already earned its reward
     console.error('[referral] payment hook failed:', error.message);
@@ -199,16 +290,17 @@ const onPaymentSuccess = async (user, payment) => {
 };
 
 /** Moves rewards past their hold period to "eligible" (checks the payment is still successful) */
-const releaseHeldRewards = async () => {
-  const due = await Referral.find({ rewardStatus: 'pending', eligibleAt: { $lte: new Date() } }).lean();
+const releaseHeldRewards = async (filter = {}) => {
+  const due = await Referral.find({ ...filter, rewardStatus: 'pending', eligibleAt: { $lte: new Date() }, review: { $in: ['none', 'approved'] } }).lean();
   const settings = await getSettings();
   const touched = new Set();
   for (const r of due) {
-    const payment = await Payment.findOne({ id: r.paymentId }).lean();
-    if (!payment || payment.status !== 'successful') {
+    const ids = [r.paymentId, r.firstPaymentId].filter(Boolean);
+    const payments = await Payment.find({ id: { $in: ids } }, 'id status').lean();
+    if (payments.length < ids.length || payments.some((p) => p.status !== 'successful')) {
       await Referral.updateOne(
         { _id: r._id, rewardStatus: 'pending' },
-        { $set: { rewardStatus: 'reversed' }, $push: { audit: { by: 'system', action: 'reversed', note: 'Payment no longer successful' } } }
+        { $set: { rewardStatus: 'reversed' }, $push: { audit: { by: 'system', action: 'reversed', note: 'A qualifying payment is no longer successful (refund or reversal)' } } }
       );
       continue;
     }
@@ -229,12 +321,13 @@ const releaseHeldRewards = async () => {
 
 /** Money for one referrer: earned, pending (hold period), available (ready, not in a payout), in a payout, paid out */
 const balances = async (email) => {
-  const rows = await Referral.find({ referrerEmail: normEmail(email), status: 'paid' }, 'reward rewardStatus payoutId').lean();
+  const rows = await Referral.find({ referrerEmail: normEmail(email), status: 'paid' }, 'reward rewardStatus payoutId review').lean();
   const sum = (test) => rows.filter(test).reduce((s, r) => s + (Number(r.reward) || 0), 0);
   return {
     earned: sum((r) => r.rewardStatus !== 'reversed'),
     pending: sum((r) => r.rewardStatus === 'pending'),
-    available: sum((r) => r.rewardStatus === 'eligible' && !r.payoutId),
+    available: sum((r) => r.rewardStatus === 'eligible' && !r.payoutId && !isUnderReview(r)),
+    inReview: sum((r) => ['pending', 'eligible'].includes(r.rewardStatus) && !r.payoutId && isUnderReview(r)),
     inPayout: sum((r) => r.rewardStatus === 'eligible' && r.payoutId),
     paidOut: sum((r) => r.rewardStatus === 'paid'),
   };
@@ -279,7 +372,10 @@ const requestPayout = async (email) => {
     audit: [{ by: key, action: 'requested' }],
   });
   // Claim the eligible rewards for this payout (a reward can only be in one payout)
-  await Referral.updateMany({ referrerEmail: key, status: 'paid', rewardStatus: 'eligible', payoutId: null }, { $set: { payoutId: payout._id } });
+  await Referral.updateMany(
+    { referrerEmail: key, status: 'paid', rewardStatus: 'eligible', payoutId: null, review: { $in: ['none', 'approved'] } },
+    { $set: { payoutId: payout._id } }
+  );
   const claimed = await Referral.find({ payoutId: payout._id }, 'reward').lean();
   const amount = claimed.reduce((s, r) => s + r.reward, 0);
   if (amount < settings.minPayout) {
@@ -335,6 +431,43 @@ const reverseReward = async (referralId, { by, reason }) => {
   if (!r.modifiedCount) throw Object.assign(new Error('Only pending or ready rewards that are not in a payout can be reversed'), { status: 400 });
 };
 
+/**
+ * Admin decision on one referral:
+ *   approve  needs_review / on_hold → approved (the reward continues; released now if the hold is over)
+ *   hold     → on_hold (the reward is frozen, not paid out, until approved)
+ *   reject   → rejected + not eligible, reward reversed (not possible once it is in a payout or paid)
+ */
+const reviewReferral = async (referralId, action, { by, reason = '' }) => {
+  const note = String(reason || '').trim().slice(0, 300);
+  const r = await Referral.findById(referralId).lean();
+  if (!r) throw Object.assign(new Error('Referral not found'), { status: 404 });
+  const stamp = { reviewNote: note, reviewedBy: by, reviewedAt: new Date() };
+
+  if (action === 'approve') {
+    if (r.review === 'rejected') throw Object.assign(new Error('This referral was rejected'), { status: 400 });
+    await Referral.updateOne({ _id: r._id }, { $set: { review: 'approved', ...stamp }, $push: { audit: { by, action: 'approved', note } } });
+    await releaseHeldRewards({ _id: r._id });
+  } else if (action === 'hold') {
+    if (!note) throw Object.assign(new Error('Give a reason'), { status: 400 });
+    if (r.review === 'rejected') throw Object.assign(new Error('This referral was rejected'), { status: 400 });
+    if (r.payoutId || r.rewardStatus === 'paid') throw Object.assign(new Error('This reward is already in a payout. Reject the payout first.'), { status: 400 });
+    await Referral.updateOne({ _id: r._id }, { $set: { review: 'on_hold', ...stamp }, $push: { audit: { by, action: 'on_hold', note } } });
+  } else if (action === 'reject') {
+    if (!note) throw Object.assign(new Error('Give a reason'), { status: 400 });
+    if (r.payoutId || r.rewardStatus === 'paid') throw Object.assign(new Error('This reward is already in a payout. Reject the payout first.'), { status: 400 });
+    const $set = { review: 'rejected', ...stamp, notEligibleReason: note };
+    if (r.status !== 'paid') $set.status = 'not_eligible';
+    if (['pending', 'eligible'].includes(r.rewardStatus)) $set.rewardStatus = 'reversed';
+    await Referral.updateOne({ _id: r._id, payoutId: null }, { $set, $push: { audit: { by, action: 'rejected', note } } });
+    if (r.reward && ['pending', 'eligible'].includes(r.rewardStatus)) {
+      notify(r.referrerEmail, 'reward_rejected', { name: r.referredName.split(' ')[0] || 'Your referral', reward: r.reward });
+    }
+  } else {
+    throw Object.assign(new Error('Unknown action'), { status: 400 });
+  }
+  return Referral.findById(r._id).lean();
+};
+
 // ── Notifications (email + in-app) ────────────────────────────────────────
 
 const naira = (n) => `₦${Number(n || 0).toLocaleString('en-NG')}`;
@@ -342,11 +475,23 @@ const naira = (n) => `₦${Number(n || 0).toLocaleString('en-NG')}`;
 const MESSAGES = {
   signup: (d) => ({
     title: 'Someone joined with your code 🎉',
-    body: `${d.name} signed up with your referral code. You'll earn a reward when they subscribe.`,
+    body: `${d.name} signed up with your referral code. You'll earn a reward after they pay for two months in a row (or one year).`,
+  }),
+  first_payment: (d) => ({
+    title: `${d.name} made their first payment`,
+    body: `${d.name} paid for their first month. Your reward is recorded when they pay for the second month.`,
   }),
   reward: (d) => ({
     title: `You earned ${naira(d.reward)}!`,
     body: `${d.name} subscribed to the ${d.plan.charAt(0) + d.plan.slice(1).toLowerCase()} plan. Your ${naira(d.reward)} reward is pending for ${d.holdDays} days, then you can withdraw it.`,
+  }),
+  reward_review: (d) => ({
+    title: `You earned ${naira(d.reward)}!`,
+    body: `${d.name} qualified on the ${d.plan.charAt(0) + d.plan.slice(1).toLowerCase()} plan. Our team is checking this referral before the ${naira(d.reward)} reward can be withdrawn.`,
+  }),
+  reward_rejected: (d) => ({
+    title: 'Referral reward not approved',
+    body: `After review, the ${naira(d.reward)} reward for ${d.name} was not approved. Contact support if you have questions.`,
   }),
   eligible: (d) => ({
     title: 'Your referral rewards are ready',
@@ -401,6 +546,7 @@ module.exports = {
   requestPayout,
   updatePayout,
   reverseReward,
+  reviewReferral,
   startReferralScheduler,
   normCode,
 };

@@ -574,7 +574,7 @@ const runAutomation = async ({ dryRun = false, now = Date.now(), ignoreWindow = 
           subject: msg.subject,
           html: msg.html,
           text: msg.text,
-          senderName: 'Maimuna Anka, FashionTally',
+          senderName: 'FashionTally',
           replyTo,
           tags: ['automation', `seq-${it.seq}`, it.template],
           headers: marketing

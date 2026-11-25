@@ -31,6 +31,7 @@ admin.get('/participants', a.participants);
 admin.post('/participants/:email/suspend', a.suspend);
 admin.get('/referrals', a.referrals);
 admin.post('/referrals/:id/reverse', a.reverse);
+admin.post('/referrals/:id/review/:action', a.review);
 admin.get('/payouts', a.payouts);
 admin.post('/payouts/:id/:action', a.payoutAction);
 admin.put('/settings', a.updateSettings);

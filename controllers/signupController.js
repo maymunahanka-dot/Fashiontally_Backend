@@ -26,7 +26,8 @@ const { trialEndDate: getTrialEndDate } = require('../config/trial');
 
 const signupUser = async (req, res) => {
   console.log('[signup] ── SIGNUP ATTEMPT ───────────────────────────');
-  const { name, email, phone, password, country, businessName, category, emailVerificationToken, referralCode } = req.body || {};
+  const { name, email, phone, password, country, businessName, category, emailVerificationToken, referralCode, deviceId } = req.body || {};
+  const signupDeviceId = String(deviceId || '').trim().slice(0, 100);
 
   // ── Validation ──────────────────────────────────────────────
   const errors = {};
@@ -138,6 +139,7 @@ const signupUser = async (req, res) => {
           role:                'Designer',
           name:                name.trim(),
           phone:               phone.trim(),
+          signupDeviceId,
           originalPhone:       phone.trim(),
           country:             country.trim(),
           language:            ['en', 'fr'].includes(req.body.language) ? req.body.language : languageForCountry(country),
@@ -198,6 +200,7 @@ const signupUser = async (req, res) => {
         email: normalizedEmail, name, phone, code: referralCode,
         ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim(),
         device: String(req.headers['user-agent'] || ''),
+        deviceId: signupDeviceId,
         source: String(req.headers['user-agent'] || '').includes('okhttp') || req.body?.platform === 'app' ? 'app' : 'web',
       }).then((r) => console.log(`[signup] referral ${referralCode}: ${r.ok ? 'linked' : r.reason}`));
     }

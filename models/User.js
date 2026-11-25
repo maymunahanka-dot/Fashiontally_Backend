@@ -49,6 +49,7 @@ const userSchema = new mongoose.Schema({
   lastActiveAt:       { type: String },
   // Refer & Earn: code entered at sign-up (set once, never changed)
   referredByCode:     { type: String, default: '' },
+  signupDeviceId:     { type: String, default: '' }, // random id from the web / app at sign-up (referral checks)
   // Unsubscribed from admin announcement emails (account emails like codes and receipts still go out)
   emailOptOut:        { type: Boolean, default: false },
   emailOptOutAt:      { type: String, default: null },

@@ -12,6 +12,7 @@
 const User = require('../models/User');
 const AuthUser = require('../models/AuthUser');
 const { sendBrevoEmail } = require('../config/brevo');
+const { appBadges } = require('../services/emailBadges');
 const { generateToken, tokenExpiry } = require('../utils/tokenUtils');
 
 /**
@@ -63,6 +64,7 @@ const sendResetLink = async (user, authUser) => {
           </p>
         </div>
         <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+          ${appBadges()}
           <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
         </div>
       </div>

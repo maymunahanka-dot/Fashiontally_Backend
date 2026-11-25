@@ -166,6 +166,7 @@ const googleAuth = async (req, res) => {
         role:                'Designer',
         name:                userName || '',
         phone:               '',
+        signupDeviceId:      String(req.body?.deviceId || '').trim().slice(0, 100),
         originalPhone:       '',
         country:             '',
         email:               normalizedEmail,
@@ -205,6 +206,7 @@ const googleAuth = async (req, res) => {
           email: normalizedEmail, name: userName, code: req.body.referralCode,
           ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim(),
           device: String(req.headers['user-agent'] || ''), source: 'google',
+          deviceId: String(req.body?.deviceId || '').trim().slice(0, 100),
         }).then((r) => console.log(`[googleAuth] referral ${req.body.referralCode}: ${r.ok ? 'linked' : r.reason}`));
       }
     }

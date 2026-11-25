@@ -5,6 +5,7 @@
  */
 
 const { sendBrevoEmail } = require('../config/brevo');
+const { appBadges } = require('./emailBadges');
 
 /**
  * Emails a verification code issued by otpService.
@@ -43,6 +44,7 @@ const sendEmailOTP = async (email, otp, expiresMinutes) => {
             </p>
           </div>
           <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+            ${appBadges()}
             <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
           </div>
         </div>
@@ -83,7 +85,7 @@ const sendSubscriptionReceipt = async (email, payment, user = {}) => {
   const name         = user.name || user.businessName || email.split('@')[0];
   const planType     = payment.plantype || payment.planType || 'Growth';
   const amount       = payment.planPrice || payment.amount || 0;
-  const txRef        = payment.transactionId || payment.txRef || payment.id || '—';
+  const txRef        = payment.transactionId || payment.txRef || payment.id || 'N/A';
   const paidAt       = formatDate(payment.paidAt || payment.createdAt);
   const receiptNo    = `RCP-${Date.now().toString(36).toUpperCase()}`;
 
@@ -100,7 +102,7 @@ const sendSubscriptionReceipt = async (email, payment, user = {}) => {
   try {
     await sendBrevoEmail({
       to:      email,
-      subject: `Payment Receipt – FashionTally ${planType} Plan`,
+      subject: `Payment Receipt: FashionTally ${planType} Plan`,
       html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -141,7 +143,7 @@ const sendSubscriptionReceipt = async (email, payment, user = {}) => {
               <div style="background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;padding:24px;text-align:center;">
                 <p style="color:#6b7280;font-size:13px;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.06em;">Amount Paid</p>
                 <p style="color:#111827;font-size:40px;font-weight:800;margin:0;line-height:1.1;">${formatCurrency(amount)}</p>
-                <p style="color:#16988d;font-size:14px;font-weight:600;margin:8px 0 0 0;">${planType} Plan — ${cycleLabel}</p>
+                <p style="color:#16988d;font-size:14px;font-weight:600;margin:8px 0 0 0;">${planType} Plan (${cycleLabel})</p>
               </div>
             </td>
           </tr>
@@ -195,6 +197,7 @@ const sendSubscriptionReceipt = async (email, payment, user = {}) => {
           <!-- Footer -->
           <tr>
             <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+              ${appBadges()}
               <p style="color:#9ca3af;font-size:12px;margin:0;">
                 © ${new Date().getFullYear()} FashionTally. All rights reserved.<br/>
                 This is an automated receipt. Please keep it for your records.
@@ -263,7 +266,8 @@ const emailLayout = ({ heading, paragraphs, button, note }) => `
       </p>
     </div>
     <div style="background: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
-      <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
+      ${appBadges()}
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} FashionTally. All rights reserved.</p>
     </div>
   </div>
 `;
@@ -287,7 +291,7 @@ const sendEmail = async (tag, to, subject, html, text) => {
 const welcomeText = (name) => [
   `Welcome, ${String(name || '').trim() || 'there'}!`,
   '',
-  'Your FashionTally account is ready. Your free trial has started — explore everything the platform has to offer.',
+  'Your FashionTally account is ready. Your free trial has started. Explore everything the platform has to offer.',
   '',
   "Here's what you can do right away:",
   '- Add your clients and track their measurements',
@@ -300,7 +304,7 @@ const welcomeText = (name) => [
   '',
   `Get started: ${APP_URL()}`,
   '',
-  "If you have any questions, reply to this email — we're happy to help.",
+  "If you have any questions, reply to this email. We're happy to help.",
 ].join('\n');
 
 // Same dark design as the custom emails admins send (brandLayout)
@@ -310,7 +314,7 @@ const sendWelcomeEmail = (email, name) =>
     heading: 'Welcome to FashionTally 👋',
     paragraphs: [
       `Hi ${firstName(name, email)},`,
-      `Your FashionTally account is ready. Your <strong style="color:#f3f3f1;">free trial</strong> has started — explore everything the platform has to offer.`,
+      `Your FashionTally account is ready. Your <strong style="color:#f3f3f1;">free trial</strong> has started. Explore everything the platform has to offer.`,
       `Here's what you can do right away:<br/>
         <span style="display:block;margin-top:6px;line-height:2;color:#f3f3f1;">
         <span style="color:#2fd3c3;">&#10003;</span>&nbsp; Add your clients and track their measurements<br/>
@@ -332,7 +336,7 @@ const sendPasswordChangedEmail = (email, name) =>
       `Hi ${firstName(name, email)},`,
       `The password for your FashionTally account (<strong>${escapeHtml(email)}</strong>) was changed on ${formatDate(Date.now())}.`,
       `If you made this change, you don't need to do anything.`,
-      `<strong style="color: #b91c1c;">If this wasn't you</strong>, reset your password right away and contact us — someone else may have access to your account.`,
+      `<strong style="color: #b91c1c;">If this wasn't you</strong>, reset your password right away and contact us. Someone else may have access to your account.`,
     ],
     button: { text: 'Reset Password', url: `${APP_URL()}/forgot-password` },
   }));
@@ -563,6 +567,7 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;f
 
         <!-- Footer -->
         <tr><td align="center" style="padding:22px 12px 0 12px;font-size:12px;line-height:1.7;color:#6f6f6c;">
+          ${appBadges()}
           ${t.footer}<br/>
           <a href="${site}" style="color:#a6a6a2;text-decoration:none;font-weight:600;">${t.website}</a>
           &nbsp;·&nbsp;

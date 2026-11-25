@@ -36,8 +36,11 @@ accountSchema.index({ 'bank.accountNumber': 1 });
 
 /**
  * One per referred customer (a customer can only ever be referred once).
- * status:       registered (signed up) → paid (first payment) | not_eligible
- * rewardStatus: none → pending (14-day hold) → eligible → paid | reversed
+ * status:       registered (signed up) → first_payment (1 of 2 monthly payments)
+ *               → paid (qualified: 2nd payment in a row, or a yearly payment) | not_eligible
+ * rewardStatus: none → pending (hold period) → eligible → paid | reversed
+ * review:       none | needs_review (flagged) → approved | on_hold | rejected (admin)
+ *               Rewards only move to "eligible" while review is none or approved.
  */
 const referralSchema = new mongoose.Schema(
   {
@@ -46,20 +49,29 @@ const referralSchema = new mongoose.Schema(
     referredEmail: { type: String, required: true, unique: true },
     referredName: { type: String, default: '' },
     source: { type: String, default: '' },             // web | google | app
-    status: { type: String, enum: ['registered', 'paid', 'not_eligible'], default: 'registered', index: true },
+    status: { type: String, enum: ['registered', 'first_payment', 'paid', 'not_eligible'], default: 'registered', index: true },
     notEligibleReason: { type: String, default: '' },
     plan: { type: String, default: '' },
     billingCycle: { type: String, default: '' },
     amountPaid: { type: Number, default: 0 },
-    paymentId: { type: String, default: null },        // the referred customer's first payment
+    firstPaymentId: { type: String, default: null },   // payment 1 of 2
+    firstPaidAt: { type: Date, default: null },
+    firstPlan: { type: String, default: '' },
+    firstBillingCycle: { type: String, default: '' },
+    paymentId: { type: String, default: null },        // the payment that qualified the referral (2nd, or yearly)
     paidAt: { type: Date, default: null },
     reward: { type: Number, default: 0 },
     rewardStatus: { type: String, enum: ['none', 'pending', 'eligible', 'paid', 'reversed'], default: 'none', index: true },
     eligibleAt: { type: Date, default: null },
     payoutId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     signupIp: { type: String, default: '' },
-    signupDevice: { type: String, default: '' },
+    signupDevice: { type: String, default: '' },       // browser / app user agent
+    deviceId: { type: String, default: '', index: true }, // random id the web / app keeps on the device
     flags: { type: [String], default: [] },
+    review: { type: String, enum: ['none', 'needs_review', 'approved', 'on_hold', 'rejected'], default: 'none', index: true },
+    reviewNote: { type: String, default: '' },
+    reviewedBy: { type: String, default: '' },
+    reviewedAt: { type: Date, default: null },
     audit: { type: [auditEntry], default: [] },
   },
   { timestamps: true }
@@ -106,6 +118,12 @@ const settingSchema = new mongoose.Schema({
   },
   minPayout: { type: Number, default: 5000 },
   holdDays: { type: Number, default: 14 },
+  // Qualifying: two monthly payments in a row, the 2nd within this many days of the 1st
+  secondPaymentWindowDays: { type: Number, default: 45 },
+  yearlyQualifies: { type: Boolean, default: true },   // a yearly payment (12 months paid) qualifies on its own
+  // Flag for admin review when one referrer brings in this many sign-ups
+  flagSignupsPerDay: { type: Number, default: 5 },
+  flagSignupsPerMonth: { type: Number, default: 20 },
   updatedAt: { type: Date, default: Date.now },
   updatedBy: { type: String, default: '' },
 });

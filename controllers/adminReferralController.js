@@ -24,6 +24,9 @@ const overview = async (req, res) => {
             _id: null,
             signups: { $sum: 1 },
             paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } },
+            firstPayment: { $sum: { $cond: [{ $eq: ['$status', 'first_payment'] }, 1, 0] } },
+            needsReview: { $sum: { $cond: [{ $eq: ['$review', 'needs_review'] }, 1, 0] } },
+            onHold: { $sum: { $cond: [{ $eq: ['$review', 'on_hold'] }, 1, 0] } },
             revenue: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$amountPaid', 0] } },
             generated: { $sum: { $cond: [{ $in: ['$rewardStatus', ['pending', 'eligible', 'paid']] }, '$reward', 0] } },
             pending: { $sum: { $cond: [{ $eq: ['$rewardStatus', 'pending'] }, '$reward', 0] } },
@@ -53,6 +56,9 @@ const overview = async (req, res) => {
         clicks,
         signups: r.signups || 0,
         paidReferrals: r.paid || 0,
+        firstPayment: r.firstPayment || 0,
+        needsReview: r.needsReview || 0,
+        onHold: r.onHold || 0,
         conversion: r.signups ? Math.round((r.paid / r.signups) * 1000) / 10 : 0,
         revenue: r.revenue || 0,
         rewardsGenerated: r.generated || 0,
@@ -125,12 +131,13 @@ const participants = async (req, res) => {
   }
 };
 
-// GET /referrals?status=&rewardStatus=&referrer=
+// GET /referrals?status=&rewardStatus=&review=&referrer=
 const referrals = async (req, res) => {
   try {
     const filter = {};
     if (req.query.status) filter.status = String(req.query.status);
     if (req.query.rewardStatus) filter.rewardStatus = String(req.query.rewardStatus);
+    if (req.query.review) filter.review = String(req.query.review);
     if (req.query.referrer) filter.referrerEmail = String(req.query.referrer).toLowerCase();
     const rows = await Referral.find(filter).sort({ createdAt: -1 }).limit(1000).lean();
     res.json({ success: true, data: rows.map(({ __v, ...r }) => ({ ...r, id: String(r._id) })) });
@@ -171,6 +178,18 @@ const reverse = async (req, res) => {
   }
 };
 
+// POST /referrals/:id/review/:action  (approve | hold | reject)  { reason }
+const review = async (req, res) => {
+  try {
+    const r = await ref.reviewReferral(req.params.id, req.params.action, { by: adminName(req), reason: req.body?.reason });
+    console.log(`[referral] ${adminName(req)} ${req.params.action} referral ${req.params.id}`);
+    const { __v, ...rest } = r;
+    res.json({ success: true, data: { ...rest, id: String(r._id) } });
+  } catch (error) {
+    fail(res, error);
+  }
+};
+
 // POST /participants/:email/suspend  { suspended: bool, reason }
 const suspend = async (req, res) => {
   try {
@@ -203,6 +222,10 @@ const updateSettings = async (req, res) => {
     }
     if (b.minPayout != null) $set.minPayout = Math.max(0, Math.round(Number(b.minPayout) || 0));
     if (b.holdDays != null) $set.holdDays = Math.min(90, Math.max(0, Math.round(Number(b.holdDays) || 0)));
+    if (b.secondPaymentWindowDays != null) $set.secondPaymentWindowDays = Math.min(120, Math.max(28, Math.round(Number(b.secondPaymentWindowDays) || 45)));
+    if (typeof b.yearlyQualifies === 'boolean') $set.yearlyQualifies = b.yearlyQualifies;
+    if (b.flagSignupsPerDay != null) $set.flagSignupsPerDay = Math.min(1000, Math.max(2, Math.round(Number(b.flagSignupsPerDay) || 5)));
+    if (b.flagSignupsPerMonth != null) $set.flagSignupsPerMonth = Math.min(10000, Math.max(2, Math.round(Number(b.flagSignupsPerMonth) || 20)));
     const s = await ReferralSetting.findOneAndUpdate({ id: 'main' }, { $set }, { new: true }).lean();
     console.log(`[referral] settings changed by ${adminName(req)}:`, JSON.stringify(b));
     res.json({ success: true, data: s });
@@ -224,9 +247,9 @@ const exportCsv = async (req, res) => {
         date(p.createdAt), p.email, p.amount, p.status, p.bank?.bankName, p.bank?.accountNumber, p.bank?.accountName, p.reference, date(p.paidAt), (p.flags || []).join('; '),
       ]);
     } else {
-      header = ['Signed up', 'Referrer', 'Code', 'Referred customer', 'Status', 'Plan', 'Amount paid', 'Reward', 'Reward status', 'Ready on', 'Flags'];
+      header = ['Signed up', 'Referrer', 'Code', 'Referred customer', 'Status', 'Payment 1', 'Payment 2 / qualified', 'Plan', 'Amount paid', 'Reward', 'Reward status', 'Ready on', 'Review', 'Flags'];
       rows = (await Referral.find({}).sort({ createdAt: -1 }).lean()).map((r) => [
-        date(r.createdAt), r.referrerEmail, r.code, r.referredEmail, r.status, r.plan, r.amountPaid, r.reward, r.rewardStatus, date(r.eligibleAt), (r.flags || []).join('; '),
+        date(r.createdAt), r.referrerEmail, r.code, r.referredEmail, r.status, date(r.firstPaidAt), date(r.paidAt), r.plan, r.amountPaid, r.reward, r.rewardStatus, date(r.eligibleAt), r.review, (r.flags || []).join('; '),
       ]);
     }
     const csv = [header, ...rows].map((row) => row.map(cell).join(',')).join('\n');
@@ -238,4 +261,4 @@ const exportCsv = async (req, res) => {
   }
 };
 
-module.exports = { overview, participants, referrals, payouts, payoutAction, reverse, suspend, updateSettings, exportCsv };
+module.exports = { overview, participants, referrals, payouts, payoutAction, reverse, review, suspend, updateSettings, exportCsv };

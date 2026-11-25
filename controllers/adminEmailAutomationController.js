@@ -146,7 +146,7 @@ const sendTest = async (req, res) => {
         subject: `[Test] ${msg.subject}`,
         html: msg.html,
         text: msg.text,
-        senderName: 'Maimuna Anka, FashionTally',
+        senderName: 'FashionTally',
         replyTo: process.env.AUTOMATION_REPLY_TO || process.env.BREVO_SENDER_EMAIL,
         tags: ['automation-test'],
       });
@@ -198,7 +198,7 @@ const sendAllTests = async (req, res) => {
               subject: `[Test ${key}${langs.length > 1 ? ` ${lang.toUpperCase()}` : ''}] ${msg.subject}`,
               html: msg.html,
               text: msg.text,
-              senderName: 'Maimuna Anka, FashionTally',
+              senderName: 'FashionTally',
               replyTo: process.env.AUTOMATION_REPLY_TO || process.env.BREVO_SENDER_EMAIL,
               tags: ['automation-test'],
             });
