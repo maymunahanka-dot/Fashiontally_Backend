@@ -59,6 +59,10 @@ startAdminEmailScheduler();
 const { startEmailAutomationScheduler } = require('./services/emailAutomation');
 startEmailAutomationScheduler();
 
+// ── Automated push notifications (short form of the automated emails) ──
+const { startPushAutomationScheduler } = require('./services/pushAutomation');
+startPushAutomationScheduler();
+
 // ── Refer & Earn: release rewards after their hold period ─────
 const { startReferralScheduler } = require('./services/referral.service');
 startReferralScheduler();
@@ -161,6 +165,7 @@ app.use('/api/user', fcmTokenRoutes);       // PUT /api/user/fcm-token
 app.use('/api/admin/notifications', adminNotificationRoutes); // POST /send  GET /
 app.use('/api/admin/emails', require('./routes/adminEmail'));    // email campaigns (daily batches)
 app.use('/api/admin/email-automation', require('./routes/adminEmailAutomation')); // automated emails
+app.use('/api/admin/push-automation', require('./routes/adminPushAutomation'));   // automated push notifications
 app.use('/api/email/unsubscribe', require('./routes/emailUnsubscribe'));          // unsubscribe link in emails
 app.use('/api/refab', require('./routes/refab'));
 app.use('/api/referral', require('./routes/referral').user);                    // Refer & Earn

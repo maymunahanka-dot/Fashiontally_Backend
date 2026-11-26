@@ -669,6 +669,15 @@ module.exports = {
   TEMPLATES,
   SEQUENCES,
   PRIORITY,
+  // shared with the automated push notifications (services/pushAutomation)
+  loadCandidates,
+  loadData,
+  buildVars,
+  fill,
+  offerActive,
+  lagosHour,
+  dayGap,
+  sampleContext,
   // for tests
   planForUser,
   toParagraphs,
